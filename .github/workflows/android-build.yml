@@ -2,8 +2,13 @@ name: APK Build (GitHub-hosted)
 
 # GitHub-hosted Gradle build per HANDOFF.md. Uses Actions' free runner
 # minutes - no EAS Build credits or EAS_TOKEN required. Produces a
-# debug-signed APK and publishes it to a GitHub Release tagged build-N
-# that the operator can sideload on a phone.
+# standalone release-mode APK (JS bundled in, no Metro dev server
+# needed) and publishes it to a GitHub Release tagged build-N that
+# the operator can sideload on a phone.
+#
+# Expo's prebuild template defaults release.signingConfig to
+# signingConfigs.debug, so the auto-included debug.keystore is used
+# to sign the release APK. No keystore secrets are required.
 
 on:
   workflow_dispatch:
@@ -72,16 +77,20 @@ jobs:
           restore-keys: |
             gradle-
 
-      - name: Build debug APK
+      # assembleRelease bundles the JS into the APK and signs it with
+      # the auto-included debug.keystore (per Expo prebuild's default
+      # release.signingConfig). This is the standalone-sideload path -
+      # no Metro dev server needed at runtime.
+      - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
 
       - name: Locate APK
         id: apk
         run: |
-          APK=$(find android/app/build/outputs/apk/debug -name "*.apk" -print -quit)
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" -print -quit)
           if [ -z "$APK" ]; then
-            echo "::error::No APK found under android/app/build/outputs/apk/debug"
+            echo "::error::No APK found under android/app/build/outputs/apk/release"
             exit 1
           fi
           echo "path=$APK" >> "$GITHUB_OUTPUT"
@@ -89,11 +98,6 @@ jobs:
 
       - name: Rename APK for upload
         run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
-
-      # NOTE: actions/upload-artifact was removed - the user's GitHub
-      # Actions artifact storage quota was hit and uploads fail. The
-      # GitHub Release below is the primary delivery path and uses repo
-      # storage (separate, much larger quota).
 
       - name: Publish GitHub Release
         if: github.event_name == 'push'
@@ -104,7 +108,11 @@ jobs:
           body: |
             Auto-built from commit `${{ github.sha }}`.
 
-            Sideload-only debug-signed APK. Install via:
+            Standalone release-mode APK (JS bundled in, no Metro
+            dev server needed). Signed with the auto-generated debug
+            keystore so it sideloads without any signing setup.
+
+            Install via:
             1. Download the APK below.
             2. On your Android device, allow "install from unknown sources" for your browser / file manager.
             3. Open the downloaded APK to install.
