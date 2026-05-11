@@ -53,9 +53,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
 
-  // Multi-touch state. Knob and pressed are driven from the root
-  // touch dispatcher; the Joystick / FireButton components are pure
-  // visual.
   const [knobOffset, setKnobOffset] = useState({ x: 0, y: 0 });
   const [firePressed, setFirePressed] = useState(false);
   const touchesRef = useRef<Map<number, TouchState>>(new Map());
@@ -63,7 +60,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
 
   const screen = Dimensions.get('window');
 
-  // Game loop.
   useEffect(() => {
     let mounted = true;
     let last = performance.now();
@@ -88,17 +84,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       mounted = false;
     };
   }, []);
-
-  // ----- Touch dispatcher -----
-  // Captures every touch on the root playing-screen View, classifies
-  // it by which on-screen control it landed on, then routes its
-  // lifecycle accordingly:
-  //   joystick: continuous knob update on move
-  //   fire: press-and-hold flag while finger is down
-  //   pause / auto / weapon / dock: tap-style; fires action on touch
-  //     end if the finger lifted within the same region it started.
-  // The Joystick and FireButton components are visual only
-  // (pointerEvents="none") so they never claim responder.
 
   function classify(x: number, y: number): TouchKind | null {
     const order: TouchKind[] = ['joystick', 'fire', 'dock', 'pause', 'auto', 'weapon'];
@@ -174,7 +159,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
     const active = e.nativeEvent.touches || [];
     const activeIds = new Set(active.map((t) => t.identifier));
 
-    // Process active touches (new + moving).
     for (const t of active) {
       const id = t.identifier;
       if (!touchesRef.current.has(id)) {
@@ -187,7 +171,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       if (state?.kind === 'joystick') updateJoystick(t.pageX, t.pageY);
     }
 
-    // Handle ended touches: any tracked id not in activeIds.
     const ended = (e.nativeEvent.changedTouches || []).filter(
       (t) => !activeIds.has(t.identifier)
     );
@@ -201,14 +184,12 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       } else if (state.kind === 'joystick') {
         clearJoystick();
       } else if (endKind === state.kind) {
-        // Tap completed in same region as it started.
         triggerAction(state.kind);
       }
     }
   }
 
   function onResponderRelease() {
-    // All touches ended. Clean up any state we still hold.
     for (const state of Array.from(touchesRef.current.values())) {
       if (state.kind === 'fire') setFire(false);
       else if (state.kind === 'joystick') clearJoystick();
@@ -216,8 +197,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
     touchesRef.current.clear();
   }
 
-  // Helper to wrap a small button View. Reports its measured bounds
-  // to the dispatcher via onLayout + measureInWindow.
   function buttonBounds(kind: TouchKind, ref: React.RefObject<View | null>) {
     return () => {
       const node = ref.current as any;
@@ -229,13 +208,11 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
     };
   }
 
-  // Refs for tap-style buttons.
   const pauseRef = useRef<View>(null);
   const autoRef = useRef<View>(null);
   const weaponRef = useRef<View>(null);
   const dockRef = useRef<View>(null);
 
-  // ----- World rendering setup -----
   const w = worldRef.current;
   const cam = w.camera;
   const sw = screen.width;
@@ -287,15 +264,9 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
           />
         ))}
 
-        <Rect
-          x={camX}
-          y={camY}
-          width={2400}
-          height={2400}
-          fill="none"
-          stroke="rgba(135,206,250,0.15)"
-          strokeWidth={2}
-        />
+        {/* World-bounds rectangle removed - it read as a "hard wall"
+            on the screen. The clamp in world.ts still keeps physics
+            in bounds, but the player no longer sees an edge. */}
 
         {w.salvageRings.map((r, i) => {
           if (!r.active) return null;
@@ -377,9 +348,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
             )
         )}
 
-        {/* When the 3D underlay is active, hide the SVG ship polygons so
-            the GLB meshes are visible. Bullets, pickups, particles, and
-            HUD continue to render above. */}
         {!RENDER_3D &&
           w.enemies.map((e, i) => {
             if (!onScreen(e.pos.x, e.pos.y, 80)) return null;

@@ -12,15 +12,10 @@ interface Props {
   worldRef: { current: World };
 }
 
-// Tiny replacement for expo-three's Renderer. expo-three is stale and
-// pulls in an old expo-modules-core which conflicts with SDK 52's
-// gradle plugin chain. All it actually does is feed a real WebGL
-// context (from expo-gl) into three.js's WebGLRenderer while mocking
-// the DOM canvas interface that three.js touches at construction time.
-//
-// Audit-driven additions: ownerDocument / parentElement /
-// setPointerCapture / releasePointerCapture so three.js's
-// WebGLRenderer doesn't crash on missing fields when initializing.
+// Tiny replacement for expo-three's Renderer. All it does is feed a
+// real WebGL context (from expo-gl) into three.js's WebGLRenderer
+// while mocking the DOM canvas interface that three.js touches at
+// construction time.
 function makeRenderer(gl: any): THREE.WebGLRenderer {
   const fakeCanvas: any = {
     width: gl.drawingBufferWidth,
@@ -45,13 +40,32 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
   return renderer;
 }
 
+// Convert every Mesh under root to MeshBasicMaterial so it renders
+// at full brightness regardless of lighting. The Kenney models have
+// embedded materials we don't always preserve color info from
+// during a clone(true), and PBR materials look dark without an
+// HDRI / environment map. Basic-material keeps things visible.
+function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
+  root.traverse((obj: any) => {
+    if (obj.isMesh) {
+      const old = obj.material;
+      const color =
+        old && old.color && typeof old.color.clone === 'function'
+          ? old.color.clone()
+          : new THREE.Color(fallbackColor);
+      const useVertexColors = !!(old && old.vertexColors);
+      obj.material = new THREE.MeshBasicMaterial({
+        color,
+        vertexColors: useVertexColors,
+        side: THREE.DoubleSide,
+      });
+    }
+  });
+}
+
 // Render the playfield as an orthographic top-down 3D scene. Game
 // logic still runs in world.ts as 2D physics; this component just
 // reads worldRef each frame and positions GLB meshes accordingly.
-//
-// SVG layer above this GLView continues to draw bullets, pickups,
-// particles, salvage rings, and the HUD - the 3D pass only owns
-// the ships and the boss.
 export function Render3D({ worldRef }: Props) {
   const { width: sw, height: sh } = Dimensions.get('window');
   const startedRef = useRef(false);
@@ -75,9 +89,7 @@ export function Render3D({ worldRef }: Props) {
 
     const scene = new THREE.Scene();
 
-    // Orthographic top-down camera. world Y maps to scene Z so the
-    // model's natural "forward" (positive Z in glTF convention)
-    // points toward the bottom of the screen.
+    // Orthographic top-down camera.
     const camera = new THREE.OrthographicCamera(
       -sw / 2,
       sw / 2,
@@ -90,7 +102,7 @@ export function Render3D({ worldRef }: Props) {
     camera.up.set(0, 0, -1);
     camera.lookAt(0, 0, 0);
 
-    // Flat lighting - performance over realism per mobile rules.
+    // Lighting kept in case any non-basic materials slip through.
     scene.add(new THREE.AmbientLight(0xffffff, 1.1));
     const dir = new THREE.DirectionalLight(0xffffff, 0.7);
     dir.position.set(50, 200, 50);
@@ -98,8 +110,7 @@ export function Render3D({ worldRef }: Props) {
 
     // Preload every GLB referenced in GLB_ASSETS. Each template is
     // auto-scaled to roughly 30 world units along its largest axis,
-    // then re-centered. Per-entity scale is applied at render time
-    // by dividing by 30 and multiplying by ship.size.
+    // then re-centered.
     const templates: Record<string, THREE.Object3D> = {};
     const TEMPLATE_BASE_SIZE = 30;
     await Promise.all(
@@ -109,7 +120,7 @@ export function Render3D({ worldRef }: Props) {
           const box = new THREE.Box3().setFromObject(root);
           const size = box.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z);
-          if (maxDim > 0) root.scale.setScalar(TEMPLATE_BASE_SIZE / maxDim);
+          if (maxDim > 0.001) root.scale.setScalar(TEMPLATE_BASE_SIZE / maxDim);
           box.setFromObject(root);
           const center = box.getCenter(new THREE.Vector3());
           root.position.sub(center);
@@ -120,9 +131,13 @@ export function Render3D({ worldRef }: Props) {
       })
     );
 
-    // Active meshes keyed by entity id. Player is 'player', enemies
-    // are 'e' + index. Reused across frames to avoid scene churn.
+    // Active meshes keyed by entity id.
     const active = new Map<string, THREE.Object3D>();
+
+    // Fallback geometry for when a GLB template failed to load.
+    // Visible red sphere makes the failure obvious in-game so we can
+    // diagnose (no logcat needed).
+    const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
 
     function place(
       key: string,
@@ -135,13 +150,21 @@ export function Render3D({ worldRef }: Props) {
       let mesh = active.get(key);
       if (!mesh) {
         const tpl = templates[modelName];
-        if (!tpl) return;
-        mesh = tpl.clone(true);
+        if (tpl) {
+          mesh = tpl.clone(true);
+          forceBasicMaterials(mesh, 0xffffff);
+        } else {
+          // GLB failed to load - render a bright red sphere so the
+          // missing model is visually obvious.
+          mesh = new THREE.Mesh(
+            fallbackGeo,
+            new THREE.MeshBasicMaterial({ color: 0xff3030 })
+          );
+        }
         scene.add(mesh);
         active.set(key, mesh);
       }
       mesh.position.set(x, 0, y);
-      // Adjust for glTF +Z forward vs world angle convention.
       mesh.rotation.y = -angle + Math.PI / 2;
       const scale = worldSize / 15;
       mesh.scale.setScalar(scale);
@@ -158,7 +181,6 @@ export function Render3D({ worldRef }: Props) {
 
     function render() {
       if (!mountedRef.current) {
-        // Component unmounted - bail out so the RAF chain dies.
         return;
       }
       const w = worldRef.current;
@@ -167,7 +189,6 @@ export function Render3D({ worldRef }: Props) {
         return;
       }
 
-      // Camera follows world camera; orthographic so no perspective.
       camera.position.x = w.camera.x;
       camera.position.z = w.camera.y;
       camera.lookAt(w.camera.x, 0, w.camera.y);
@@ -175,14 +196,12 @@ export function Render3D({ worldRef }: Props) {
 
       const keep = new Set<string>();
 
-      // Player
       const ps = SHIPS_BY_ID[w.player.classId];
       if (ps) {
         place('player', ps.model, w.player.pos.x, w.player.pos.y, w.player.angle, w.player.size);
         keep.add('player');
       }
 
-      // Enemies
       for (let i = 0; i < w.enemies.length; i++) {
         const e = w.enemies[i];
         const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
