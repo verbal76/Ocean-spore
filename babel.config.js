@@ -19,6 +19,8 @@
 //   build #9 (2026-05-11) - persistent player memory: unlocked ships,
 //                            high score, lifetime totals saved to
 //                            expo-file-system
+//   build #10 (2026-05-11) - RENDER_3D=true + multi-touch root dispatcher
+//                            + PAUSE relocation + canvas-mock additions
 module.exports = function (api) {
   api.cache(true);
   return {

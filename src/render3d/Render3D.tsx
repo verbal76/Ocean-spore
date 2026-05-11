@@ -1,5 +1,5 @@
 import { GLView } from 'expo-gl';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Dimensions, StyleSheet } from 'react-native';
 import * as THREE from 'three';
 import { BOSS, ENEMIES_BY_ID } from '../data/enemies';
@@ -17,6 +17,10 @@ interface Props {
 // gradle plugin chain. All it actually does is feed a real WebGL
 // context (from expo-gl) into three.js's WebGLRenderer while mocking
 // the DOM canvas interface that three.js touches at construction time.
+//
+// Audit-driven additions: ownerDocument / parentElement /
+// setPointerCapture / releasePointerCapture so three.js's
+// WebGLRenderer doesn't crash on missing fields when initializing.
 function makeRenderer(gl: any): THREE.WebGLRenderer {
   const fakeCanvas: any = {
     width: gl.drawingBufferWidth,
@@ -27,6 +31,10 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
     addEventListener: () => {},
     removeEventListener: () => {},
     getContext: () => gl,
+    ownerDocument: { defaultView: { devicePixelRatio: 1 } },
+    parentElement: null,
+    setPointerCapture: () => {},
+    releasePointerCapture: () => {},
   };
   const renderer = new THREE.WebGLRenderer({
     canvas: fakeCanvas,
@@ -47,6 +55,16 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
 export function Render3D({ worldRef }: Props) {
   const { width: sw, height: sh } = Dimensions.get('window');
   const startedRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  // Stop the render loop on unmount so RAF doesn't leak across
+  // playing -> dead -> playing cycles.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   async function onContextCreate(gl: any) {
     if (startedRef.current) return;
@@ -139,6 +157,10 @@ export function Render3D({ worldRef }: Props) {
     }
 
     function render() {
+      if (!mountedRef.current) {
+        // Component unmounted - bail out so the RAF chain dies.
+        return;
+      }
       const w = worldRef.current;
       if (!w) {
         requestAnimationFrame(render);
