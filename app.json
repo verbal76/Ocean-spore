@@ -14,11 +14,6 @@
       "resizeMode": "contain",
       "backgroundColor": "#03101c"
     },
-    "updates": {
-      "url": "https://u.expo.dev/REPLACE_WITH_EAS_PROJECT_ID",
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.verbal76.oceanspore"
@@ -33,7 +28,6 @@
       "bundler": "metro"
     },
     "plugins": [
-      "expo-updates",
       [
         "expo-build-properties",
         {
@@ -42,11 +36,6 @@
           }
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
-      }
-    }
+    ]
   }
 }

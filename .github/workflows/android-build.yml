@@ -1,106 +1,114 @@
-name: Android APK (GitHub Runner)
+name: APK Build (GitHub-hosted)
+
+# GitHub-hosted Gradle build per HANDOFF.md. Uses Actions' free runner
+# minutes - no EAS Build credits or EAS_TOKEN required. Produces a
+# debug-signed APK and publishes it to a GitHub Release tagged build-N
+# that the operator can sideload on a phone.
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - 'working-branch-ocean-spore'
-    paths-ignore:
-      - 'src/**'
-      - 'docs/**'
-      - '**/*.md'
-      - '.github/**'
-      - 'scripts/**'
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      profile:
-        description: 'EAS build profile (preview = APK, production = AAB)'
-        required: true
-        default: 'preview'
+      - working-branch-ocean-spore
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'app.json'
+      - 'eas.json'
+      - 'babel.config.js'
+      - 'metro.config.js'
+      - 'android/**'
+      - 'ios/**'
+      - 'assets/icon.png'
+      - 'assets/adaptive-icon.png'
+      - 'assets/splash-icon.png'
+      - '.github/workflows/android-build.yml'
+
+permissions:
+  contents: write
 
 concurrency:
-  group: android-build-${{ github.ref }}
-  cancel-in-progress: false
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build APK on GitHub runner
+    name: Build Android APK
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
+    timeout-minutes: 60
     steps:
-      - name: Checkout
+      - name: Check out repo
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '22'
 
-      - name: Setup Java 17
+      - name: Set up Java (Temurin 17)
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EAS_TOKEN }}
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Generate build info
-        run: node scripts/write-build-info.mjs
-
-      - name: Prepare assets
-        run: npm run prepare-assets
-
-      - name: Determine profile
-        id: profile
-        run: |
-          if [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "profile=production" >> "$GITHUB_OUTPUT"
-            echo "outext=aab" >> "$GITHUB_OUTPUT"
-          else
-            echo "profile=${{ github.event.inputs.profile || 'preview' }}" >> "$GITHUB_OUTPUT"
-            echo "outext=apk" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build with EAS (local)
+      - name: Generate android/ project (expo prebuild)
+        run: npx expo prebuild --platform android --clean
         env:
-          EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
-        run: |
-          mkdir -p build
-          eas build \
-            --platform android \
-            --profile ${{ steps.profile.outputs.profile }} \
-            --local \
-            --non-interactive \
-            --output build/app.${{ steps.profile.outputs.outext }}
+          EXPO_NO_TELEMETRY: '1'
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        continue-on-error: true
+      - name: Cache Gradle
+        uses: actions/cache@v4
         with:
-          name: app-${{ steps.profile.outputs.profile }}-${{ github.run_number }}
-          path: build/app.${{ steps.profile.outputs.outext }}
-          retention-days: 90
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK=$(find android/app/build/outputs/apk/debug -name "*.apk" -print -quit)
+          if [ -z "$APK" ]; then
+            echo "::error::No APK found under android/app/build/outputs/apk/debug"
+            exit 1
+          fi
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
+          echo "name=ocean-spore-build-${{ github.run_number }}.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Rename APK for upload
+        run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.name }}
+          if-no-files-found: error
 
       - name: Publish GitHub Release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app.${{ steps.profile.outputs.outext }}
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('apk-build-{0}', github.run_number) }}
-          name: "${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('APK build #{0}', github.run_number) }}"
-          prerelease: false
-          make_latest: "true"
-          generate_release_notes: true
+          tag_name: build-${{ github.run_number }}
+          name: 'Ocean Spore APK build #${{ github.run_number }}'
+          body: |
+            Auto-built from commit `${{ github.sha }}`.
+
+            Sideload-only debug-signed APK. Install via:
+            1. Download the APK below.
+            2. On your Android device, allow "install from unknown sources" for your browser / file manager.
+            3. Open the downloaded APK to install.
+          files: ${{ steps.apk.outputs.name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
