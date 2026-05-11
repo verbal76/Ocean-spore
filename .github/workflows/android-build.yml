@@ -90,12 +90,10 @@ jobs:
       - name: Rename APK for upload
         run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
 
-      - name: Upload APK as workflow artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.apk.outputs.name }}
-          path: ${{ steps.apk.outputs.name }}
-          if-no-files-found: error
+      # NOTE: actions/upload-artifact was removed - the user's GitHub
+      # Actions artifact storage quota was hit and uploads fail. The
+      # GitHub Release below is the primary delivery path and uses repo
+      # storage (separate, much larger quota).
 
       - name: Publish GitHub Release
         if: github.event_name == 'push'
