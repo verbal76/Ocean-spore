@@ -75,6 +75,15 @@ export interface Harbor {
   discovered: boolean;
 }
 
+export interface SalvageRing {
+  pos: Vec2;
+  radius: number;
+  charges: number;
+  active: boolean;
+  cooldown: number;
+  pulse: number;
+}
+
 export interface Particle {
   pos: Vec2;
   vel: Vec2;

@@ -10,6 +10,7 @@ import {
   Pickup,
   PlayerShip,
   Run,
+  SalvageRing,
   UpgradeKey,
   UpgradeState,
   Vec2,
@@ -25,6 +26,7 @@ export interface World {
   pickups: Pickup[];
   particles: Particle[];
   harbors: Harbor[];
+  salvageRings: SalvageRing[];
   run: Run;
   camera: Vec2;
   spawnTimer: number;
@@ -50,6 +52,20 @@ const HARBOR_NAMES = [
   'Boneyard',
   'Stormgate',
 ];
+
+function newSalvageRing(): SalvageRing {
+  return {
+    pos: {
+      x: 140 + Math.random() * (WORLD_WIDTH - 280),
+      y: 140 + Math.random() * (WORLD_HEIGHT - 280),
+    },
+    radius: 58,
+    charges: 4 + Math.floor(Math.random() * 6),
+    active: true,
+    cooldown: 0,
+    pulse: Math.random() * Math.PI * 2,
+  };
+}
 
 export function createWorld(shipClassId: string, unlocked: string[]): World {
   const ship = SHIPS_BY_ID[shipClassId];
@@ -86,6 +102,9 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
     });
   }
 
+  const salvageRings: SalvageRing[] = [];
+  for (let i = 0; i < 8; i++) salvageRings.push(newSalvageRing());
+
   return {
     player,
     enemies: [],
@@ -93,6 +112,7 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
     pickups: [],
     particles: [],
     harbors,
+    salvageRings,
     run: {
       startedAt: Date.now(),
       parts: 0,
@@ -199,6 +219,18 @@ function spawnParticles(world: World, pos: Vec2, color: string, count: number, s
       size: 3 + Math.random() * 3,
     });
   }
+}
+
+function dropPartsPickup(world: World, pos: Vec2, amount: number) {
+  const a = Math.random() * Math.PI * 2;
+  world.pickups.push({
+    pos: { x: pos.x + Math.cos(a) * 12, y: pos.y + Math.sin(a) * 12 },
+    vel: { x: Math.cos(a) * 60, y: Math.sin(a) * 60 },
+    life: 18,
+    amount,
+    kind: 'parts',
+    color: '#22d3ee',
+  });
 }
 
 function spawnEnemyAtEdge(world: World) {
@@ -310,6 +342,30 @@ function tryUnlockShips(world: World) {
   }
 }
 
+// Per-archetype movement intent. Returns a scalar multiplier on the
+// approach direction: 1 = chase, 0 = hover, negative = flee.
+function movementIntent(archetype: string, dst: number, isBoss?: boolean): number {
+  if (isBoss) return 1;
+  switch (archetype) {
+    case 'skiff':
+      // Small pirate - skittish: flee inside 180, chase outside
+      return dst < 180 ? -0.9 : 1;
+    case 'drone':
+      // Tiny - very skittish, flees easily
+      return dst < 220 ? -1.1 : 1;
+    case 'gunboat':
+      // Medium kiter: back off close, advance far, hover at mid
+      if (dst < 230) return -0.5;
+      if (dst > 300) return 1;
+      return 0;
+    case 'raider':
+      // Heavy - always presses
+      return 1;
+    default:
+      return 1;
+  }
+}
+
 export function tick(world: World, dt: number, input: InputState): { died: boolean } {
   if (world.dockedHarborIndex >= 0) return { died: false };
   world.elapsed += dt;
@@ -317,6 +373,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   const run = world.run;
   const p = world.player;
 
+  // Weather rotation
   const now = Date.now() / 1000;
   if (run.weather === 'storm' && now > run.weatherUntil) {
     run.weather = 'clear';
@@ -331,6 +388,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   }
   const weatherSpeed = run.weather === 'storm' ? 0.78 : 1;
 
+  // Player movement
   const inputMag = Math.hypot(input.dx, input.dy);
   if (inputMag > 0.08) {
     const wantAngle = Math.atan2(input.dy, input.dx);
@@ -347,14 +405,17 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   p.pos.x = clamp(p.pos.x + p.vel.x * dt, 20, WORLD_WIDTH - 20);
   p.pos.y = clamp(p.pos.y + p.vel.y * dt, 20, WORLD_HEIGHT - 20);
 
+  // Regen
   if (run.upgrades.regenLevel > 0) {
     p.hull = clamp(p.hull + run.upgrades.regenLevel * 1.2 * dt, 0, p.maxHull);
   }
 
+  // Camera follow
   world.camera.x = lerp(world.camera.x, p.pos.x, 1 - Math.exp(-4 * dt));
   world.camera.y = lerp(world.camera.y, p.pos.y, 1 - Math.exp(-4 * dt));
   world.shake = Math.max(0, world.shake - dt * 10);
 
+  // Fire
   p.fireCooldown -= dt;
   const wantFire = input.fire || input.autoFire;
   if (wantFire && p.fireCooldown <= 0) {
@@ -362,6 +423,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     p.fireCooldown = 1 / p.fireRate;
   }
 
+  // Bullets
   for (let i = world.bullets.length - 1; i >= 0; i--) {
     const b = world.bullets[i];
     b.pos.x += b.vel.x * dt;
@@ -383,15 +445,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
             spawnParticles(world, e.pos, '#fbbf24', e.isBoss ? 24 : 8, 250);
             const drops = e.isBoss ? 8 : 1;
             for (let d = 0; d < drops; d++) {
-              const a = Math.random() * Math.PI * 2;
-              world.pickups.push({
-                pos: { x: e.pos.x + Math.cos(a) * 12, y: e.pos.y + Math.sin(a) * 12 },
-                vel: { x: Math.cos(a) * 60, y: Math.sin(a) * 60 },
-                life: 18,
-                amount: e.isBoss ? Math.floor(e.partsDrop / drops) : e.partsDrop,
-                kind: 'parts',
-                color: '#22d3ee',
-              });
+              dropPartsPickup(world, e.pos, e.isBoss ? Math.floor(e.partsDrop / drops) : e.partsDrop);
             }
             run.kills += 1;
             run.score += e.isBoss ? 5000 : 100;
@@ -417,13 +471,15 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     }
   }
 
+  // Enemies
   for (let j = world.enemies.length - 1; j >= 0; j--) {
     const e = world.enemies[j];
     const dx = p.pos.x - e.pos.x;
     const dy = p.pos.y - e.pos.y;
     const dst = Math.hypot(dx, dy) || 1;
     e.angle = Math.atan2(dy, dx);
-    const targetSpeed = e.speed * weatherSpeed;
+    const intent = movementIntent(e.archetype, dst, e.isBoss);
+    const targetSpeed = e.speed * weatherSpeed * intent;
     e.vel.x = lerp(e.vel.x, (dx / dst) * targetSpeed, 1 - Math.exp(-2.5 * dt));
     e.vel.y = lerp(e.vel.y, (dy / dst) * targetSpeed, 1 - Math.exp(-2.5 * dt));
     e.pos.x = clamp(e.pos.x + e.vel.x * dt, 10, WORLD_WIDTH - 10);
@@ -457,6 +513,8 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
       spawnParticles(world, e.pos, e.color, e.isBoss ? 16 : 8, 150);
       world.shake = Math.max(world.shake, e.isBoss ? 8 : 3);
       if (!e.isBoss) {
+        // Every enemy drops at least one part - including ram-deaths.
+        dropPartsPickup(world, e.pos, Math.max(1, e.partsDrop));
         world.enemies.splice(j, 1);
         run.kills += 1;
         run.score += 50;
@@ -468,6 +526,41 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     }
   }
 
+  // Salvage rings
+  for (const ring of world.salvageRings) {
+    ring.pulse += dt;
+    if (!ring.active) {
+      ring.cooldown -= dt;
+      if (ring.cooldown <= 0) {
+        ring.active = true;
+        ring.charges = 4 + Math.floor(Math.random() * 6);
+      }
+      continue;
+    }
+    const d = Math.hypot(p.pos.x - ring.pos.x, p.pos.y - ring.pos.y);
+    if (d < ring.radius && ring.charges > 0) {
+      // Burst all remaining charges as gold crates.
+      for (let k = 0; k < ring.charges; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = ring.radius * 0.4 + Math.random() * (ring.radius * 0.6);
+        world.pickups.push({
+          pos: { x: ring.pos.x + Math.cos(a) * r, y: ring.pos.y + Math.sin(a) * r },
+          vel: { x: Math.cos(a) * 120, y: Math.sin(a) * 120 },
+          life: 25,
+          amount: 3 + Math.floor(Math.random() * 6),
+          kind: 'crate',
+          color: '#fbbf24',
+        });
+      }
+      spawnParticles(world, ring.pos, '#fbbf24', 18, 220);
+      run.score += 25;
+      ring.charges = 0;
+      ring.active = false;
+      ring.cooldown = 90 + Math.random() * 60;
+    }
+  }
+
+  // Pickups
   const magnetRange = 75 + run.upgrades.magnetLevel * 22;
   for (let i = world.pickups.length - 1; i >= 0; i--) {
     const pk = world.pickups[i];
@@ -496,6 +589,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     }
   }
 
+  // Particles
   for (let i = world.particles.length - 1; i >= 0; i--) {
     const pt = world.particles[i];
     pt.pos.x += pt.vel.x * dt;
@@ -506,8 +600,10 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     if (pt.life <= 0) world.particles.splice(i, 1);
   }
 
+  // Momentum decay
   run.momentum = Math.max(0, run.momentum - 9 * dt);
 
+  // Spawning
   world.spawnTimer -= dt;
   const targetEnemies = Math.min(14, 3 + Math.floor(run.kills / 8));
   if (world.spawnTimer <= 0 && world.enemies.filter((e) => !e.isBoss).length < targetEnemies) {
@@ -515,16 +611,19 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     world.spawnTimer = Math.max(0.45, 1.6 - Math.min(1.0, run.kills / 200));
   }
 
+  // Crate drops (random floating loot, separate from salvage rings)
   world.crateTimer -= dt;
   if (world.crateTimer <= 0) {
     dropCrate(world);
     world.crateTimer = 25 + Math.random() * 25;
   }
 
+  // Boss spawn
   if (!run.bossSpawned && run.kills >= run.nextBossAt) {
     spawnBoss(world);
   }
 
+  // Harbor proximity
   world.nearHarborIndex = -1;
   for (let i = 0; i < world.harbors.length; i++) {
     const h = world.harbors[i];

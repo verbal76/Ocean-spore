@@ -121,6 +121,39 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
 
         <Rect x={camX} y={camY} width={2400} height={2400} fill="none" stroke="rgba(135,206,250,0.15)" strokeWidth={2} />
 
+        {/* Salvage rings (active only) - dashed gold loot zones. */}
+        {w.salvageRings.map((r, i) => {
+          if (!r.active) return null;
+          if (!onScreen(r.pos.x, r.pos.y, 120)) return null;
+          const pulseScale = 1 + 0.04 * Math.sin(r.pulse * 2.4);
+          return (
+            <G key={'sr' + i}>
+              <Circle
+                cx={r.pos.x + camX}
+                cy={r.pos.y + camY}
+                r={r.radius * pulseScale}
+                fill="rgba(251,191,36,0.06)"
+                stroke="#fbbf24"
+                strokeWidth={1.5}
+                strokeDasharray="4 8"
+              />
+              <Circle
+                cx={r.pos.x + camX}
+                cy={r.pos.y + camY}
+                r={9}
+                fill="#fbbf24"
+                opacity={0.9}
+              />
+              <Circle
+                cx={r.pos.x + camX}
+                cy={r.pos.y + camY}
+                r={4}
+                fill="#fef3c7"
+              />
+            </G>
+          );
+        })}
+
         {w.harbors.map((h, i) => onScreen(h.pos.x, h.pos.y, 200) && (
           <G key={'h' + i}>
             <Circle
