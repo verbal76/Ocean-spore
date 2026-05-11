@@ -3,6 +3,7 @@
 // behaviour - babel.config.js is in the path-trigger list and a
 // touch here is the cheapest way to ask for a build on demand.
 //   build #1 (2026-05-11) - initial pipeline + game skeleton
+//   build #2 (2026-05-11) - complete src tree (world, Game, UI screens)
 module.exports = function (api) {
   api.cache(true);
   return {
