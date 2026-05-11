@@ -6,12 +6,22 @@ import { SHIPS } from '../data/ships';
 interface Props {
   unlockedShips: string[];
   highScore: number;
+  lifetimeKills: number;
+  lifetimeParts: number;
   selectedShipId: string;
   onSelectShip: (id: string) => void;
   onStart: () => void;
 }
 
-export function TitleScreen({ unlockedShips, highScore, selectedShipId, onSelectShip, onStart }: Props) {
+export function TitleScreen({
+  unlockedShips,
+  highScore,
+  lifetimeKills,
+  lifetimeParts,
+  selectedShipId,
+  onSelectShip,
+  onStart,
+}: Props) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.loop(
@@ -21,6 +31,8 @@ export function TitleScreen({ unlockedShips, highScore, selectedShipId, onSelect
       ])
     ).start();
   }, [pulse]);
+
+  const hasLifetime = lifetimeKills > 0 || lifetimeParts > 0;
 
   return (
     <View style={styles.root}>
@@ -62,6 +74,11 @@ export function TitleScreen({ unlockedShips, highScore, selectedShipId, onSelect
       <View style={styles.bottom}>
         {highScore > 0 && (
           <Text style={styles.high}>BEST {highScore}</Text>
+        )}
+        {hasLifetime && (
+          <Text style={styles.lifetime}>
+            LIFETIME · {lifetimeKills} kills · {lifetimeParts} parts
+          </Text>
         )}
         <Pressable onPress={onStart} style={styles.startBtn}>
           <Animated.Text
@@ -158,7 +175,7 @@ const styles = StyleSheet.create({
   },
   bottom: {
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   high: {
     color: COLORS.momentum,
@@ -166,11 +183,18 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     fontWeight: '800',
   },
+  lifetime: {
+    color: COLORS.textMuted,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    fontWeight: '600',
+  },
   startBtn: {
     backgroundColor: COLORS.accent,
     paddingHorizontal: 56,
     paddingVertical: 18,
     borderRadius: 999,
+    marginTop: 6,
   },
   startText: {
     color: COLORS.bg,

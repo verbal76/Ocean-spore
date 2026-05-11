@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
 import { COLORS } from './colors';
@@ -18,16 +18,47 @@ import {
   World,
 } from './game/world';
 import { SHIPS_BY_ID } from './data/ships';
+import { loadSave, saveSave, SaveData } from './state/persistence';
 
 export default function App() {
   const [screen, setScreen] = useState<GameScreen>('title');
   const [selectedShip, setSelectedShip] = useState<string>('raft');
   const [unlockedShips, setUnlockedShips] = useState<string[]>(['raft']);
   const [highScore, setHighScore] = useState<number>(0);
+  const [lifetimeKills, setLifetimeKills] = useState<number>(0);
+  const [lifetimeParts, setLifetimeParts] = useState<number>(0);
   const worldRef = useRef<World | null>(null);
   const [, force] = useState(0);
   const lastRunRef = useRef<Run | null>(null);
   const [newUnlocks, setNewUnlocks] = useState<string[]>([]);
+  const loadedRef = useRef(false);
+
+  // Load persisted save on first mount.
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    loadSave()
+      .then((s) => {
+        setSelectedShip(s.lastShip);
+        setUnlockedShips(s.unlockedShips);
+        setHighScore(s.highScore);
+        setLifetimeKills(s.totalKills);
+        setLifetimeParts(s.totalParts);
+      })
+      .catch(() => {});
+  }, []);
+
+  function persist(overrides: Partial<SaveData> = {}) {
+    saveSave({
+      unlockedShips,
+      highScore,
+      totalKills: lifetimeKills,
+      totalParts: lifetimeParts,
+      lastShip: selectedShip,
+      schemaVersion: 1,
+      ...overrides,
+    });
+  }
 
   function startRun() {
     const w = createWorld(selectedShip, unlockedShips);
@@ -43,7 +74,9 @@ export default function App() {
 
   function onDied(run: Run) {
     lastRunRef.current = run;
-    setHighScore((h) => Math.max(h, run.score));
+    const newHigh = Math.max(highScore, run.score);
+    setHighScore(newHigh);
+
     const before = new Set(unlockedShips);
     const after = new Set(run.unlockedShips);
     const newly: string[] = [];
@@ -51,7 +84,22 @@ export default function App() {
       if (!before.has(id)) newly.push(SHIPS_BY_ID[id]?.name ?? id);
     });
     setNewUnlocks(newly);
-    setUnlockedShips(Array.from(after));
+    const newUnlockedList = Array.from(after);
+    setUnlockedShips(newUnlockedList);
+
+    const newLifetimeKills = lifetimeKills + run.kills;
+    const newLifetimeParts = lifetimeParts + run.totalParts;
+    setLifetimeKills(newLifetimeKills);
+    setLifetimeParts(newLifetimeParts);
+
+    persist({
+      unlockedShips: newUnlockedList,
+      highScore: newHigh,
+      totalKills: newLifetimeKills,
+      totalParts: newLifetimeParts,
+      lastShip: selectedShip,
+    });
+
     setScreen('dead');
   }
 
@@ -75,7 +123,13 @@ export default function App() {
     if (!worldRef.current) return;
     switchShip(worldRef.current, id);
     setSelectedShip(id);
+    persist({ lastShip: id });
     force((x) => x + 1);
+  }
+
+  function onSelectShipFromTitle(id: string) {
+    setSelectedShip(id);
+    persist({ lastShip: id });
   }
 
   function backToTitle() {
@@ -92,8 +146,10 @@ export default function App() {
         <TitleScreen
           unlockedShips={unlockedShips}
           highScore={highScore}
+          lifetimeKills={lifetimeKills}
+          lifetimeParts={lifetimeParts}
           selectedShipId={selectedShip}
-          onSelectShip={setSelectedShip}
+          onSelectShip={onSelectShipFromTitle}
           onStart={startRun}
         />
       )}

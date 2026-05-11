@@ -16,6 +16,9 @@
 //   build #8 (2026-05-11) - drop expo-three (stale, pulled old
 //                            expo-modules-core; broke expo-font gradle
 //                            plugin chain). Inline tiny custom renderer.
+//   build #9 (2026-05-11) - persistent player memory: unlocked ships,
+//                            high score, lifetime totals saved to
+//                            expo-file-system
 module.exports = function (api) {
   api.cache(true);
   return {
