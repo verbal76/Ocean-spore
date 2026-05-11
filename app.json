@@ -2,6 +2,7 @@
   "expo": {
     "name": "Ocean Spore",
     "slug": "ocean-spore",
+    "owner": "hot-attic-games",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
