@@ -1,5 +1,4 @@
 import { GLView } from 'expo-gl';
-import { Renderer } from 'expo-three';
 import { useRef } from 'react';
 import { Dimensions, StyleSheet } from 'react-native';
 import * as THREE from 'three';
@@ -11,6 +10,31 @@ import { loadModel } from './assetLoader';
 
 interface Props {
   worldRef: { current: World };
+}
+
+// Tiny replacement for expo-three's Renderer. expo-three is stale and
+// pulls in an old expo-modules-core which conflicts with SDK 52's
+// gradle plugin chain. All it actually does is feed a real WebGL
+// context (from expo-gl) into three.js's WebGLRenderer while mocking
+// the DOM canvas interface that three.js touches at construction time.
+function makeRenderer(gl: any): THREE.WebGLRenderer {
+  const fakeCanvas: any = {
+    width: gl.drawingBufferWidth,
+    height: gl.drawingBufferHeight,
+    style: {},
+    clientHeight: gl.drawingBufferHeight,
+    clientWidth: gl.drawingBufferWidth,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    getContext: () => gl,
+  };
+  const renderer = new THREE.WebGLRenderer({
+    canvas: fakeCanvas,
+    context: gl,
+  });
+  renderer.setPixelRatio(1);
+  renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight, false);
+  return renderer;
 }
 
 // Render the playfield as an orthographic top-down 3D scene. Game
@@ -28,8 +52,7 @@ export function Render3D({ worldRef }: Props) {
     if (startedRef.current) return;
     startedRef.current = true;
 
-    const renderer = new Renderer({ gl });
-    renderer.setSize(sw, sh);
+    const renderer = makeRenderer(gl);
     renderer.setClearColor(0x062238, 1);
 
     const scene = new THREE.Scene();

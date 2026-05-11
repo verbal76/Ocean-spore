@@ -13,6 +13,9 @@
 //                            gated behind RENDER_3D flag (still off)
 //   build #7 (2026-05-11) - pin three to 0.166.0 to match expo-three
 //                            8.0.0 peer-dep range (was 0.169.0, ERESOLVE)
+//   build #8 (2026-05-11) - drop expo-three (stale, pulled old
+//                            expo-modules-core; broke expo-font gradle
+//                            plugin chain). Inline tiny custom renderer.
 module.exports = function (api) {
   api.cache(true);
   return {
