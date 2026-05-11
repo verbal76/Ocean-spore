@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, G, Line, Polygon, Rect } from 'react-native-svg';
 import { COLORS } from '../colors';
+import { RENDER_3D, Render3D } from '../render3d';
 import { FireButton } from '../ui/FireButton';
 import { HUD } from '../ui/HUD';
 import { Joystick } from '../ui/Joystick';
@@ -106,6 +107,8 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
 
   return (
     <View style={[styles.root, stormy && { backgroundColor: COLORS.storm }]}>
+      {RENDER_3D && <Render3D worldRef={worldRef} />}
+
       <Svg width={sw} height={sh} style={StyleSheet.absoluteFill}>
         {waveLines.map((wl, i) => (
           <Line
@@ -121,7 +124,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
 
         <Rect x={camX} y={camY} width={2400} height={2400} fill="none" stroke="rgba(135,206,250,0.15)" strokeWidth={2} />
 
-        {/* Salvage rings (active only) - dashed gold loot zones. */}
         {w.salvageRings.map((r, i) => {
           if (!r.active) return null;
           if (!onScreen(r.pos.x, r.pos.y, 120)) return null;
@@ -183,7 +185,10 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
           />
         ))}
 
-        {w.enemies.map((e, i) => {
+        {/* When the 3D underlay is active, hide the SVG ship polygons so
+            the GLB meshes are visible. The HUD, bullets, pickups, and
+            particles continue to draw above. */}
+        {!RENDER_3D && w.enemies.map((e, i) => {
           if (!onScreen(e.pos.x, e.pos.y, 80)) return null;
           const t = `translate(${e.pos.x + camX} ${e.pos.y + camY}) rotate(${(e.angle * 180) / Math.PI}) scale(${e.size})`;
           const poly = e.isBoss ? BOSS_POLY : ENEMY_POLY;
@@ -199,7 +204,7 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
           <Circle key={'b' + i} cx={b.pos.x + camX} cy={b.pos.y + camY} r={b.size} fill={b.color} />
         ))}
 
-        {(() => {
+        {!RENDER_3D && (() => {
           const p = w.player;
           const hullFrac = p.hull / p.maxHull;
           const damaged = hullFrac < 0.45;

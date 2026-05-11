@@ -1,5 +1,8 @@
 import { ShipClass } from '../game/types';
 
+// Player ship classes: design-doc tier names stay as the player-facing
+// names; `model` maps each tier to a specific Kenney GLB so the 3D
+// renderer can swap to that mesh when RENDER_3D is enabled.
 export const SHIPS: ShipClass[] = [
   {
     id: 'raft',
@@ -13,6 +16,7 @@ export const SHIPS: ShipClass[] = [
     color: '#a98c5a',
     size: 14,
     unlockKills: 0,
+    model: 'boat-row-small',
   },
   {
     id: 'patrol',
@@ -26,6 +30,7 @@ export const SHIPS: ShipClass[] = [
     color: '#94a3b8',
     size: 18,
     unlockKills: 10,
+    model: 'boat-tow-b',
   },
   {
     id: 'skiff',
@@ -39,6 +44,7 @@ export const SHIPS: ShipClass[] = [
     color: '#a3e635',
     size: 17,
     unlockKills: 50,
+    model: 'boat-speed-d',
   },
   {
     id: 'gunship',
@@ -52,6 +58,7 @@ export const SHIPS: ShipClass[] = [
     color: '#22d3ee',
     size: 22,
     unlockKills: 200,
+    model: 'boat-tug-a',
   },
   {
     id: 'destroyer',
@@ -65,6 +72,7 @@ export const SHIPS: ShipClass[] = [
     color: '#60a5fa',
     size: 28,
     unlockKills: 500,
+    model: 'ship-small',
   },
   {
     id: 'warship',
@@ -78,6 +86,7 @@ export const SHIPS: ShipClass[] = [
     color: '#a78bfa',
     size: 34,
     unlockKills: 1500,
+    model: 'ship-cargo-c',
   },
   {
     id: 'fortress',
@@ -91,6 +100,7 @@ export const SHIPS: ShipClass[] = [
     color: '#fbbf24',
     size: 42,
     unlockKills: 5000,
+    model: 'ship-ocean-liner',
   },
 ];
 

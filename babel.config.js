@@ -9,6 +9,8 @@
 //                            collision drops parts; salvage rings
 //   build #5 (2026-05-11) - salvage tuning down; +cargo/fanboat/sniper
 //                            enemies with own intents
+//   build #6 (2026-05-11) - 3D scaffold (deps + Render3D + GLB mapping),
+//                            gated behind RENDER_3D flag (still off)
 module.exports = function (api) {
   api.cache(true);
   return {

@@ -14,6 +14,7 @@ export interface ShipClass {
   color: string;
   size: number;
   unlockKills: number;
+  model: string; // GLB filename without extension, in assets/
 }
 
 export interface PlayerShip {
