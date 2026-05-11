@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0a1a2a" />
+  <title>Ocean Spore</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-wrap">
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+      <div class="hud-row">
+        <span class="hud-label">Scrap</span>
+        <span id="scrap">0</span>
+      </div>
+      <div class="hud-row">
+        <span class="hud-label">Hull</span>
+        <div class="bar"><div id="hull-fill" class="bar-fill"></div></div>
+      </div>
+    </div>
+
+    <div id="joystick" class="touch-control">
+      <div id="joystick-knob"></div>
+    </div>
+
+    <button id="fire-btn" class="touch-control">FIRE</button>
+
+    <div id="start-screen">
+      <h1>OCEAN<br/>SPORE</h1>
+      <p>Salvage. Survive. Grow your fleet.</p>
+      <button id="start-btn">START</button>
+      <p class="hint">Use the joystick (left) to move.<br/>Tap FIRE (right) to attack.</p>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
