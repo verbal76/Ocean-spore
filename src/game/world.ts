@@ -60,7 +60,8 @@ function newSalvageRing(): SalvageRing {
       y: 140 + Math.random() * (WORLD_HEIGHT - 280),
     },
     radius: 58,
-    charges: 4 + Math.floor(Math.random() * 6),
+    // Toned-down loot: 2-4 charges instead of 4-9.
+    charges: 2 + Math.floor(Math.random() * 3),
     active: true,
     cooldown: 0,
     pulse: Math.random() * Math.PI * 2,
@@ -243,12 +244,16 @@ function spawnEnemyAtEdge(world: World) {
   };
 
   const k = world.run.kills;
-  const pool: typeof ENEMIES = [ENEMIES[0]];
-  if (k > 5) pool.push(ENEMIES[3]);
-  if (k > 15) pool.push(ENEMIES[1]);
-  if (k > 40) pool.push(ENEMIES[1]);
-  if (k > 80) pool.push(ENEMIES[2]);
-  if (k > 150) pool.push(ENEMIES[2]);
+  const pool: typeof ENEMIES = [ENEMIES[0]]; // skiff always
+  if (k > 5) pool.push(ENEMIES[3]);          // drone
+  if (k > 15) pool.push(ENEMIES[1]);         // gunboat
+  if (k > 25) pool.push(ENEMIES[4]);         // cargo hauler
+  if (k > 35) pool.push(ENEMIES[5]);         // fan boat
+  if (k > 40) pool.push(ENEMIES[1]);         // gunboat (more weight)
+  if (k > 60) pool.push(ENEMIES[6]);         // sniper sloop
+  if (k > 80) pool.push(ENEMIES[2]);         // heavy raider
+  if (k > 100) pool.push(ENEMIES[4]);        // cargo (more)
+  if (k > 150) pool.push(ENEMIES[2]);        // raider (more weight)
   const arch = pool[Math.floor(Math.random() * pool.length)];
 
   world.enemies.push({
@@ -361,6 +366,17 @@ function movementIntent(archetype: string, dst: number, isBoss?: boolean): numbe
     case 'raider':
       // Heavy - always presses
       return 1;
+    case 'cargo':
+      // Fat fleeing loot piñata - always tries to run, can't outrun.
+      return dst < 320 ? -1.0 : -0.4;
+    case 'fanboat':
+      // Kamikaze - charges hard, slightly faster than chase pace.
+      return 1.25;
+    case 'sniper':
+      // Long-range kiter - holds open ground around 350.
+      if (dst < 280) return -0.8;
+      if (dst > 420) return 0.6;
+      return 0;
     default:
       return 1;
   }
@@ -513,7 +529,6 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
       spawnParticles(world, e.pos, e.color, e.isBoss ? 16 : 8, 150);
       world.shake = Math.max(world.shake, e.isBoss ? 8 : 3);
       if (!e.isBoss) {
-        // Every enemy drops at least one part - including ram-deaths.
         dropPartsPickup(world, e.pos, Math.max(1, e.partsDrop));
         world.enemies.splice(j, 1);
         run.kills += 1;
@@ -526,20 +541,19 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     }
   }
 
-  // Salvage rings
+  // Salvage rings (toned-down loot)
   for (const ring of world.salvageRings) {
     ring.pulse += dt;
     if (!ring.active) {
       ring.cooldown -= dt;
       if (ring.cooldown <= 0) {
         ring.active = true;
-        ring.charges = 4 + Math.floor(Math.random() * 6);
+        ring.charges = 2 + Math.floor(Math.random() * 3);
       }
       continue;
     }
     const d = Math.hypot(p.pos.x - ring.pos.x, p.pos.y - ring.pos.y);
     if (d < ring.radius && ring.charges > 0) {
-      // Burst all remaining charges as gold crates.
       for (let k = 0; k < ring.charges; k++) {
         const a = Math.random() * Math.PI * 2;
         const r = ring.radius * 0.4 + Math.random() * (ring.radius * 0.6);
@@ -547,7 +561,8 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
           pos: { x: ring.pos.x + Math.cos(a) * r, y: ring.pos.y + Math.sin(a) * r },
           vel: { x: Math.cos(a) * 120, y: Math.sin(a) * 120 },
           life: 25,
-          amount: 3 + Math.floor(Math.random() * 6),
+          // Toned down: 3-6 parts per crate instead of 3-8.
+          amount: 3 + Math.floor(Math.random() * 4),
           kind: 'crate',
           color: '#fbbf24',
         });

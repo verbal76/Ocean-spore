@@ -7,6 +7,8 @@
 //   build #3 (2026-05-11) - HUD + title/over/shipyard screens + entry
 //   build #4 (2026-05-11) - AI per-archetype: small flees, big charges;
 //                            collision drops parts; salvage rings
+//   build #5 (2026-05-11) - salvage tuning down; +cargo/fanboat/sniper
+//                            enemies with own intents
 module.exports = function (api) {
   api.cache(true);
   return {

@@ -12,6 +12,10 @@ export interface EnemyArchetype {
   fireRate?: number;
 }
 
+// Index order is referenced by world.ts spawnEnemyAtEdge pool indexing.
+// Append new archetypes at the end so existing indexes stay stable.
+//   0: skiff       1: gunboat    2: raider     3: drone
+//   4: cargo       5: fanboat    6: sniper
 export const ENEMIES: EnemyArchetype[] = [
   {
     id: 'skiff',
@@ -60,6 +64,41 @@ export const ENEMIES: EnemyArchetype[] = [
     color: '#0ea5e9',
     partsDrop: 1,
     threatScore: 1,
+  },
+  {
+    id: 'cargo',
+    name: 'Cargo Hauler',
+    hull: 45,
+    speed: 55,
+    damage: 6,
+    size: 24,
+    color: '#a3a3a3',
+    partsDrop: 12,
+    threatScore: 4,
+  },
+  {
+    id: 'fanboat',
+    name: 'Fan Boat',
+    hull: 18,
+    speed: 175,
+    damage: 18,
+    size: 12,
+    color: '#fb923c',
+    partsDrop: 2,
+    threatScore: 2,
+  },
+  {
+    id: 'sniper',
+    name: 'Sniper Sloop',
+    hull: 22,
+    speed: 60,
+    damage: 16,
+    size: 16,
+    color: '#86efac',
+    partsDrop: 4,
+    threatScore: 4,
+    fireRange: 420,
+    fireRate: 0.55,
   },
 ];
 
