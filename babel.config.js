@@ -11,6 +11,8 @@
 //                            enemies with own intents
 //   build #6 (2026-05-11) - 3D scaffold (deps + Render3D + GLB mapping),
 //                            gated behind RENDER_3D flag (still off)
+//   build #7 (2026-05-11) - pin three to 0.166.0 to match expo-three
+//                            8.0.0 peer-dep range (was 0.169.0, ERESOLVE)
 module.exports = function (api) {
   api.cache(true);
   return {
