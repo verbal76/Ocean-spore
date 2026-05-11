@@ -1,0 +1,49 @@
+name: Prune Artifacts
+
+# Keep only the 3 most recent artifacts repo-wide so we stay under the
+# GitHub Actions storage quota. Runs daily, manually, and after every
+# APK build completes.
+#
+# Note: android-build.yml currently does NOT upload new artifacts (the
+# actions/upload-artifact step was removed after the quota was hit -
+# Releases use repo storage, which is a separate, much larger quota).
+# This workflow is still useful to clean up the backlog of artifacts
+# from earlier builds, and acts as a safety net if upload-artifact is
+# ever re-added.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_run:
+    workflows: ['APK Build (GitHub-hosted)']
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete all but the 3 newest artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const KEEP = 3;
+            const { owner, repo } = context.repo;
+            const all = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 }
+            );
+            const sorted = all.sort(
+              (a, b) => new Date(b.created_at) - new Date(a.created_at)
+            );
+            const toDelete = sorted.slice(KEEP);
+            core.info(`Found ${sorted.length} artifacts; keeping ${Math.min(KEEP, sorted.length)}, deleting ${toDelete.length}.`);
+            for (const a of toDelete) {
+              core.info(`Deleting ${a.name} (id=${a.id}, created=${a.created_at})`);
+              await github.rest.actions.deleteArtifact({
+                owner, repo, artifact_id: a.id,
+              });
+            }
