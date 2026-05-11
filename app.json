@@ -14,6 +14,11 @@
       "resizeMode": "contain",
       "backgroundColor": "#03101c"
     },
+    "updates": {
+      "url": "https://u.expo.dev/0cc1bf9c-b6c8-4ec7-bf71-4f7d6bb5b5d3",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.verbal76.oceanspore"
@@ -28,6 +33,7 @@
       "bundler": "metro"
     },
     "plugins": [
+      "expo-updates",
       [
         "expo-build-properties",
         {
@@ -36,6 +42,11 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0cc1bf9c-b6c8-4ec7-bf71-4f7d6bb5b5d3"
+      }
+    }
   }
 }
