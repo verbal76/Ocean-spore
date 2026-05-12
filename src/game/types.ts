@@ -17,6 +17,11 @@ export interface ShipClass {
   model: string; // GLB filename without extension, in assets/
 }
 
+export interface WakePoint {
+  x: number;
+  y: number;
+}
+
 export interface PlayerShip {
   classId: string;
   pos: Vec2;
@@ -32,6 +37,7 @@ export interface PlayerShip {
   weaponMode: number;
   size: number;
   color: string;
+  wake: WakePoint[];
 }
 
 export interface EnemyShip {
@@ -50,6 +56,7 @@ export interface EnemyShip {
   partsDrop: number;
   isBoss?: boolean;
   tier?: 'elite';
+  wake: WakePoint[];
 }
 
 export interface Bullet {

@@ -14,6 +14,7 @@ import {
   UpgradeKey,
   UpgradeState,
   Vec2,
+  WakePoint,
 } from './types';
 
 // Sandbox-feel world. 6000x6000 instead of the original 2400x2400 so
@@ -91,6 +92,7 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
     weaponMode: 0,
     size: ship.size,
     color: ship.color,
+    wake: [],
   };
 
   // Harbors arrayed around the spawn point. Distances scaled up to
@@ -307,6 +309,7 @@ function spawnEnemyAtEdge(world: World) {
     color: arch.color,
     partsDrop: Math.ceil(arch.partsDrop * partsMul),
     tier: isElite ? 'elite' : undefined,
+    wake: [],
   });
 }
 
@@ -331,6 +334,7 @@ function spawnBoss(world: World) {
     color: BOSS.color,
     partsDrop: BOSS.partsDrop,
     isBoss: true,
+    wake: [],
   });
   world.run.bossSpawned = true;
   world.shake = Math.max(world.shake, 12);
@@ -387,6 +391,28 @@ function tryUnlockShips(world: World) {
     if (k >= def.unlockKills && !world.run.unlockedShips.includes(id)) {
       world.run.unlockedShips.push(id);
     }
+  }
+}
+
+// Push a fresh wake point at the ship's stern when the ship has
+// moved far enough from the last point. The trail accumulates as
+// the ship moves; if the ship sits still, no new points are added
+// and the existing trail stays put. Curves naturally because each
+// point is captured at the ship's current heading.
+//
+// Length math: rendered ship length = 50 * (size/15) ~= 3.33 * size.
+// 3x ship length total = ~10 * size world units. With spacing of
+// 0.85 * size between points, that's ~12 points to cover the full
+// trail before fade-out. We cap at 14 for a small safety margin.
+function updateWake(ship: { pos: Vec2; angle: number; size: number; wake: WakePoint[] }) {
+  const sternBack = ship.size * 1.5;
+  const sx = ship.pos.x - Math.cos(ship.angle) * sternBack;
+  const sy = ship.pos.y - Math.sin(ship.angle) * sternBack;
+  const last = ship.wake[0];
+  const spacing = ship.size * 0.85;
+  if (!last || Math.hypot(sx - last.x, sy - last.y) > spacing) {
+    ship.wake.unshift({ x: sx, y: sy });
+    if (ship.wake.length > 14) ship.wake.length = 14;
   }
 }
 
@@ -452,6 +478,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   }
   p.pos.x = clamp(p.pos.x + p.vel.x * dt, 20, WORLD_WIDTH - 20);
   p.pos.y = clamp(p.pos.y + p.vel.y * dt, 20, WORLD_HEIGHT - 20);
+  updateWake(p);
 
   if (run.upgrades.regenLevel > 0) {
     p.hull = clamp(p.hull + run.upgrades.regenLevel * 1.2 * dt, 0, p.maxHull);
@@ -544,6 +571,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     e.vel.y = lerp(e.vel.y, (dy / dst) * targetSpeed, 1 - Math.exp(-2.5 * dt));
     e.pos.x = clamp(e.pos.x + e.vel.x * dt, 10, WORLD_WIDTH - 10);
     e.pos.y = clamp(e.pos.y + e.vel.y * dt, 10, WORLD_HEIGHT - 10);
+    updateWake(e);
 
     const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
     if (arch && arch.fireRate && arch.fireRange && dst < arch.fireRange) {
