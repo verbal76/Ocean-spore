@@ -46,6 +46,19 @@
 //                            shown, SCENE child count shown. Once we
 //                            see whether GLView is rendering at all
 //                            we can target the real bug.
+//   build #15 (2026-05-12) - REAL ROOT CAUSE: GLBs ship a colormap.png
+//                            texture that the loader creates as
+//                            THREE.Texture with image=undefined in RN
+//                            (no Image constructor). On first frame,
+//                            WebGLTextures.getDimensions does
+//                            image.width with no null guard - throws
+//                            'cannot read property width of undefined'
+//                            every single frame, killing render loop.
+//                            Fix: strip ALL texture refs from every
+//                            material in parsed GLBs (we use
+//                            MeshBasicMaterial(color) anyway so the
+//                            refs are dead weight). Reverted clear
+//                            color from debug yellow back to ocean.
 module.exports = function (api) {
   api.cache(true);
   return {

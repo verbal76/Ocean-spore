@@ -65,7 +65,49 @@ export function parseGLB(buffer: ArrayBuffer): Promise<THREE.Object3D> {
   });
 }
 
+// Every map-like property a three.js material can hold. We null all
+// of these on every parsed material because in React Native the GLB
+// loader creates THREE.Texture instances with image=undefined (no
+// Image constructor in Hermes). When the WebGLRenderer first
+// compiles/uploads textures, its getDimensions helper at
+// WebGLTextures.js:26257 does `image.width` with no null check and
+// throws 'Cannot read property "width" of undefined' on every frame,
+// killing the render loop before it can clear or draw anything.
+// We replace every material with MeshBasicMaterial(color) at place
+// time anyway, so these texture refs are dead weight - removing them
+// here makes the dead refs unreachable before the renderer ever sees
+// them.
+const TEXTURE_PROPS = [
+  'map', 'normalMap', 'roughnessMap', 'metalnessMap',
+  'emissiveMap', 'aoMap', 'bumpMap', 'displacementMap',
+  'alphaMap', 'lightMap', 'specularMap', 'envMap', 'gradientMap',
+  'matcap', 'clearcoatMap', 'clearcoatRoughnessMap',
+  'clearcoatNormalMap', 'sheenColorMap', 'sheenRoughnessMap',
+  'transmissionMap', 'thicknessMap', 'iridescenceMap',
+  'iridescenceThicknessMap', 'anisotropyMap',
+];
+
+function stripTextures(root: THREE.Object3D): number {
+  let stripped = 0;
+  root.traverse((obj: any) => {
+    if (!obj.material) return;
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+    for (const m of mats) {
+      if (!m) continue;
+      for (const key of TEXTURE_PROPS) {
+        if (m[key]) {
+          m[key] = null;
+          stripped += 1;
+        }
+      }
+    }
+  });
+  return stripped;
+}
+
 export async function loadModel(mod: number): Promise<THREE.Object3D> {
   const buf = await loadGLBAsArrayBuffer(mod);
-  return parseGLB(buf);
+  const scene = await parseGLB(buf);
+  stripTextures(scene);
+  return scene;
 }

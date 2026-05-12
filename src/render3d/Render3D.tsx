@@ -74,7 +74,6 @@ export function Render3D({ worldRef }: Props) {
     if (startedRef.current) return;
     startedRef.current = true;
 
-    // Reset all diagnostic counters on each fresh context.
     glbLoadStatus.total = Object.keys(GLB_ASSETS).length;
     glbLoadStatus.loaded = 0;
     glbLoadStatus.failed = 0;
@@ -88,14 +87,7 @@ export function Render3D({ worldRef }: Props) {
 
     try {
       const renderer = makeRenderer(gl);
-      // BRIGHT YELLOW clear color (debug-only). If the user sees a
-      // yellow playfield, GLView is alive and the renderer is at
-      // least clearing each frame - the issue is scene content. If
-      // they still see the dark ocean blue, GLView isn't rendering
-      // at all (context-create silently aborted, render loop never
-      // started, or endFrameEXP is failing). The clear color will
-      // be reverted to 0x062238 once we confirm the pipeline state.
-      renderer.setClearColor(0xffff00, 1);
+      renderer.setClearColor(0x062238, 1);
 
       const scene = new THREE.Scene();
 
@@ -148,9 +140,10 @@ export function Render3D({ worldRef }: Props) {
         })
       );
 
-      // Permanent debug marker. Magenta cube at world spawn point.
-      // frustumCulled=false to immunize against any ortho-frustum
-      // edge case. visible=true defensively.
+      // Permanent debug marker - magenta cube at world spawn point.
+      // Left in place so we can verify the pipeline once a build
+      // ships. If the user sees the player ship, the marker should
+      // also be visible (same world coords).
       const debugMarker = new THREE.Mesh(
         new THREE.BoxGeometry(60, 60, 60),
         new THREE.MeshBasicMaterial({ color: 0xff00ff })
@@ -257,11 +250,6 @@ export function Render3D({ worldRef }: Props) {
 
       render();
     } catch (err: any) {
-      // Catch anything that throws during the synchronous portion of
-      // onContextCreate (renderer construction, scene/camera setup,
-      // etc.). Without this, an init throw kills the entire 3D
-      // pipeline silently because async errors at the top level of
-      // an onContextCreate handler aren't surfaced anywhere.
       const msg = err && err.message ? String(err.message) : String(err);
       glbLoadStatus.initError = msg.slice(0, 80);
       console.warn('[Render3D] init error', err);
