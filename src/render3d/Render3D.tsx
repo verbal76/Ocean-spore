@@ -105,7 +105,10 @@ export function Render3D({ worldRef }: Props) {
       scene.add(dir);
 
       const templates: Record<string, THREE.Object3D> = {};
-      const TEMPLATE_BASE_SIZE = 30;
+      // Larger base so ships are visually punchy on the 411dp-wide
+      // orthographic viewport. Was 30 (ships ~7-22% of screen);
+      // 50 gives ~10-30%.
+      const TEMPLATE_BASE_SIZE = 50;
 
       await Promise.all(
         Object.entries(GLB_ASSETS).map(async ([name, mod]) => {
@@ -141,14 +144,9 @@ export function Render3D({ worldRef }: Props) {
         })
       );
 
-      const debugMarker = new THREE.Mesh(
-        new THREE.BoxGeometry(60, 60, 60),
-        new THREE.MeshBasicMaterial({ color: 0xff00ff })
-      );
-      debugMarker.position.set(3000, 0, 3000);
-      debugMarker.frustumCulled = false;
-      debugMarker.visible = true;
-      scene.add(debugMarker);
+      // Magenta debug cube removed - build #25 confirmed the
+      // pipeline works (FRAMES: 160 / SCENE: 6 / no RENDER ERR).
+      // The cube was occluding the ship at world spawn point.
 
       const active = new Map<string, THREE.Object3D>();
       const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
@@ -194,13 +192,6 @@ export function Render3D({ worldRef }: Props) {
         }
       }
 
-      // Build #24 stack trace pointed at a function named 'reset' as
-      // the throw site - that was renderer.resetState() being called
-      // every frame. three.js's resetState iterates known textures
-      // and crashes on a default texture with image=undefined in RN.
-      // Removing the call below; SKIP_GLB_SHIPS stays false now.
-      const SKIP_GLB_SHIPS = false;
-
       function render() {
         if (!mountedRef.current) return;
         const w = worldRef.current;
@@ -215,33 +206,30 @@ export function Render3D({ worldRef }: Props) {
           camera.lookAt(w.camera.x, 0, w.camera.y);
           camera.up.set(0, 0, -1);
 
-          if (!SKIP_GLB_SHIPS) {
-            const keep = new Set<string>();
+          const keep = new Set<string>();
 
-            const ps = SHIPS_BY_ID[w.player.classId];
-            if (ps) {
-              place('player', ps.model, w.player.pos.x, w.player.pos.y,
-                w.player.angle, w.player.size, hexToInt(ps.color));
-              keep.add('player');
-            }
-
-            for (let i = 0; i < w.enemies.length; i++) {
-              const e = w.enemies[i];
-              const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
-              if (!arch?.model) continue;
-              const key = 'e' + i;
-              place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
-              keep.add(key);
-            }
-
-            reap(keep);
+          const ps = SHIPS_BY_ID[w.player.classId];
+          if (ps) {
+            place('player', ps.model, w.player.pos.x, w.player.pos.y,
+              w.player.angle, w.player.size, hexToInt(ps.color));
+            keep.add('player');
           }
+
+          for (let i = 0; i < w.enemies.length; i++) {
+            const e = w.enemies[i];
+            const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
+            if (!arch?.model) continue;
+            const key = 'e' + i;
+            place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
+            keep.add(key);
+          }
+
+          reap(keep);
 
           glbLoadStatus.sceneChildren = scene.children.length;
 
           // renderer.resetState() removed - was the throw site per
           // build #24 stack trace.
-
           renderer.render(scene, camera);
           gl.endFrameEXP();
           glbLoadStatus.renderFrames += 1;
