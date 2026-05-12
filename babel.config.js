@@ -21,6 +21,12 @@
 //                            expo-file-system
 //   build #10 (2026-05-11) - RENDER_3D=true + multi-touch root dispatcher
 //                            + PAUSE relocation + canvas-mock additions
+//   build #11 (2026-05-12) - fresh APK on demand: bundles every fix
+//                            from the failed OTAs (MeshBasicMaterial,
+//                            red sphere fallback, Buffer.from, no
+//                            world border, 6000x6000 world,
+//                            noCompress plugin, tap-on-start, About
+//                            overlay, gear icon)
 module.exports = function (api) {
   api.cache(true);
   return {
