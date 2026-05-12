@@ -70,16 +70,14 @@ jobs:
         run: npx expo prebuild --platform android --clean
         env:
           EXPO_NO_TELEMETRY: '1'
-          # Force the OTA channel into the prebuild output. expo-updates'
-          # config plugin reads `updates.channel` from app.json AND/OR
-          # this env var when generating AndroidManifest.xml. On EAS
-          # Build the env var is injected automatically; on a manual
-          # GitHub-hosted gradle build it isn't, so the channel can
-          # end up missing from the manifest - which is exactly the
-          # 'CHANNEL: (blank)' / OTAs-don't-land symptom we saw on
-          # builds #19 - #28. Forcing it here makes the manifest
-          # explicit and the device knows which Expo branch to ask.
-          EXPO_UPDATES_CHANNEL: 'preview'
+          # NOTE: the channel is now baked in via app.json's
+          # `updates.requestHeaders["expo-channel-name"]`, which the
+          # expo-updates Android config plugin reads at prebuild time
+          # and emits as an EXPO_UPDATES_REQUEST_HEADERS_KEY meta-data
+          # in AndroidManifest.xml. Earlier attempts to set this via an
+          # EXPO_UPDATES_CHANNEL env var or via `updates.channel` in
+          # app.json were no-ops - the plugin source reads strictly
+          # from `updates.requestHeaders`.
 
       - name: Cache Gradle
         uses: actions/cache@v4
