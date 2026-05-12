@@ -75,18 +75,39 @@ function bakeVertexColors(obj: any, sampler: ColormapSampler): boolean {
 }
 
 function bakeGeometryTransforms(inner: THREE.Object3D, targetSize: number) {
+  // FIRST PASS: collect every Mesh in the GLB hierarchy with its
+  // fully-resolved world transform. This handles GLBs that have
+  // nested Groups (very common for Kenney's pack - e.g. a "boat"
+  // root Group containing a "hull" sub-Group containing the actual
+  // Mesh). If we just applyMatrix4(mesh.matrixWorld) and reset
+  // mesh.position, the parent Group's transform still applies on
+  // render and we get double-translated geometry. Build #28's
+  // bullet-offset bug was this exact issue.
   inner.updateMatrixWorld(true);
+  type Captured = { geometry: THREE.BufferGeometry; material: any };
+  const captured: Captured[] = [];
   inner.traverse((obj: any) => {
     if (obj.isMesh && obj.geometry) {
-      obj.geometry = obj.geometry.clone();
-      obj.geometry.applyMatrix4(obj.matrixWorld);
-      obj.position.set(0, 0, 0);
-      obj.rotation.set(0, 0, 0);
-      obj.scale.set(1, 1, 1);
-      obj.matrix.identity();
-      obj.matrixWorldNeedsUpdate = true;
+      const g = obj.geometry.clone();
+      g.applyMatrix4(obj.matrixWorld);
+      captured.push({ geometry: g, material: obj.material });
     }
   });
+
+  // Remove all existing children from inner. Re-attach the captured
+  // meshes directly as flat children of inner, each with identity
+  // transforms. After this, inner is a flat container of meshes
+  // whose geometries are in inner-world coordinates.
+  while (inner.children.length > 0) {
+    inner.remove(inner.children[0]);
+  }
+  for (const c of captured) {
+    const m = new THREE.Mesh(c.geometry, c.material);
+    m.position.set(0, 0, 0);
+    m.rotation.set(0, 0, 0);
+    m.scale.set(1, 1, 1);
+    inner.add(m);
+  }
 
   inner.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(inner);
@@ -215,7 +236,13 @@ export function Render3D({ worldRef }: Props) {
         }
         mesh.position.set(x, 0, y);
         mesh.rotation.y = -angle + Math.PI / 2;
-        mesh.scale.setScalar(worldSize / TEMPLATE_BASE_SIZE);
+        // Render at ~3.33x the data-defined worldSize so the ship is
+        // visually punchy on the orthographic viewport. Builds #25-26
+        // used scale=worldSize/15 with TEMPLATE_BASE_SIZE=50 giving
+        // rendered max-dim = 50 * worldSize/15 = 3.33*worldSize.
+        // Build #28 accidentally collapsed that to 1*worldSize when
+        // the formula changed to worldSize/TEMPLATE_BASE_SIZE.
+        mesh.scale.setScalar(worldSize / 15);
       }
 
       function hexToInt(hex: string): number {
