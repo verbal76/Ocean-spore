@@ -74,10 +74,13 @@ export async function loadColormapTexture(): Promise<THREE.DataTexture | null> {
       tex.magFilter = THREE.NearestFilter;
       tex.minFilter = THREE.NearestFilter;
       tex.generateMipmaps = false;
-      // PNG origin is top-left; three.js samples bottom-up by
-      // default. flipY=true swaps so UV (0,0) is the top-left pixel
-      // (which is what Kenney's GLBs expect).
-      tex.flipY = true;
+      // Build #27 had flipY=true and ships came out solid black -
+      // UVs were landing on the dark area of the palette. Kenney's
+      // GLBs author UVs assuming three.js's default (no flip), since
+      // their pipeline exports for desktop three.js / web viewer
+      // which uses flipY=false on DataTextures. Setting flipY=false
+      // matches their authoring orientation.
+      tex.flipY = false;
       tex.needsUpdate = true;
       cached = tex;
       return tex;
