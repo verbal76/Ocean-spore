@@ -7,6 +7,7 @@ import { SHIPS_BY_ID } from '../data/ships';
 import { World } from '../game/world';
 import { GLB_ASSETS } from './assets';
 import { loadModel } from './assetLoader';
+import { loadColormapTexture } from './colormap';
 import { glbLoadStatus } from './loadStatus';
 
 interface Props {
@@ -37,15 +38,23 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
   return renderer;
 }
 
-function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
+function forceBasicMaterials(
+  root: THREE.Object3D,
+  fallbackColor: number,
+  colormap: THREE.DataTexture | null
+) {
   root.traverse((obj: any) => {
     if (obj.isMesh) {
-      const old = obj.material;
-      const color = new THREE.Color(fallbackColor);
-      const useVertexColors = !!(old && old.vertexColors);
+      // If the manually-decoded colormap is available, use it as the
+      // .map and tint white so the texture shows through unchanged.
+      // The GLB's existing UVs sample the palette and give us the
+      // multi-colored Kenney look (taxi-style: orange body, dark
+      // top, etc). Without the colormap we fall back to the data-
+      // defined tint color so the ship is at least visible.
+      const useTexture = !!colormap;
       obj.material = new THREE.MeshBasicMaterial({
-        color,
-        vertexColors: useVertexColors,
+        color: useTexture ? 0xffffff : new THREE.Color(fallbackColor),
+        map: useTexture ? colormap : null,
         side: THREE.DoubleSide,
         transparent: false,
         depthWrite: true,
@@ -105,10 +114,12 @@ export function Render3D({ worldRef }: Props) {
       scene.add(dir);
 
       const templates: Record<string, THREE.Object3D> = {};
-      // Larger base so ships are visually punchy on the 411dp-wide
-      // orthographic viewport. Was 30 (ships ~7-22% of screen);
-      // 50 gives ~10-30%.
       const TEMPLATE_BASE_SIZE = 50;
+
+      // Load the shared Kenney palette texture in parallel with the
+      // GLBs. We manually decode the PNG bytes (Hermes has no Image
+      // constructor so three.js's TextureLoader can't do it).
+      const colormapPromise = loadColormapTexture();
 
       await Promise.all(
         Object.entries(GLB_ASSETS).map(async ([name, mod]) => {
@@ -144,9 +155,9 @@ export function Render3D({ worldRef }: Props) {
         })
       );
 
-      // Magenta debug cube removed - build #25 confirmed the
-      // pipeline works (FRAMES: 160 / SCENE: 6 / no RENDER ERR).
-      // The cube was occluding the ship at world spawn point.
+      // Wait for the colormap texture to be decoded. If it failed,
+      // null is returned and ships fall back to flat tint colors.
+      const colormap = await colormapPromise;
 
       const active = new Map<string, THREE.Object3D>();
       const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
@@ -160,7 +171,7 @@ export function Render3D({ worldRef }: Props) {
           const tpl = templates[modelName];
           if (tpl) {
             mesh = tpl.clone(true);
-            forceBasicMaterials(mesh, tintColor);
+            forceBasicMaterials(mesh, tintColor, colormap);
           } else {
             mesh = new THREE.Mesh(
               fallbackGeo,
@@ -228,8 +239,6 @@ export function Render3D({ worldRef }: Props) {
 
           glbLoadStatus.sceneChildren = scene.children.length;
 
-          // renderer.resetState() removed - was the throw site per
-          // build #24 stack trace.
           renderer.render(scene, camera);
           gl.endFrameEXP();
           glbLoadStatus.renderFrames += 1;

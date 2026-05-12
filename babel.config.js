@@ -1,12 +1,14 @@
 // Build-trigger marker.
-//   build #1-16 - see git history
-//   build #17 (2026-05-12) - removed renderer.resetState() + COPY ALL btn
-//   build #18 (2026-05-12) - debug cube removed, ships scale bumped
-//                            after #25 confirmed pipeline works
-//                            (FRAMES: 160, SCENE: 6, no RENDER ERR).
-//                            Ships render where the cube was - the
-//                            cube was occluding them at the player
-//                            spawn point. TEMPLATE_BASE_SIZE 30 -> 50.
+//   build #1-18 - see git history
+//   build #19 (2026-05-12) - manual colormap.png decode via upng-js.
+//                            Hermes has no Image constructor so
+//                            three.js TextureLoader fails; we read
+//                            the PNG bytes ourselves and build a
+//                            DataTexture from raw RGBA. Attached as
+//                            MeshBasicMaterial.map so Kenney's UVs
+//                            sample the palette properly. Ships now
+//                            show multi-colored skins instead of
+//                            flat tints.
 module.exports = function (api) {
   api.cache(true);
   return {
