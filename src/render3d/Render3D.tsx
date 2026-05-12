@@ -34,6 +34,12 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
   });
   renderer.setPixelRatio(1);
   renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight, false);
+  // Defensive: set output color space explicitly. MeshBasicMaterial
+  // doesn't depend on it, but if any GLB material happens to slip
+  // through with vertex colors, sRGB output matches Kenney's intent.
+  if ('outputColorSpace' in renderer) {
+    (renderer as any).outputColorSpace = THREE.SRGBColorSpace;
+  }
   return renderer;
 }
 
@@ -50,6 +56,11 @@ function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
         color,
         vertexColors: useVertexColors,
         side: THREE.DoubleSide,
+        // Force opaque + depth-tested so a stray transparent flag in
+        // the source GLB can't accidentally make the ship invisible.
+        transparent: false,
+        depthWrite: true,
+        depthTest: true,
       });
     }
   });
@@ -106,15 +117,26 @@ export function Render3D({ worldRef }: Props) {
     await Promise.all(
       Object.entries(GLB_ASSETS).map(async ([name, mod]) => {
         try {
-          const root = await loadModel(mod);
-          const box = new THREE.Box3().setFromObject(root);
+          const inner = await loadModel(mod);
+          const box = new THREE.Box3().setFromObject(inner);
           const size = box.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z);
-          if (maxDim > 0.001) root.scale.setScalar(TEMPLATE_BASE_SIZE / maxDim);
-          box.setFromObject(root);
+          if (maxDim > 0.001) inner.scale.setScalar(TEMPLATE_BASE_SIZE / maxDim);
+          box.setFromObject(inner);
           const center = box.getCenter(new THREE.Vector3());
-          root.position.sub(center);
-          templates[name] = root;
+          inner.position.sub(center);
+
+          // Wrap the centered inner in an outer Group so place() can
+          // set position/rotation/scale on the wrapper without
+          // overwriting the inner's centering offset. Previously
+          // clone.position.set(x,0,y) discarded the (-center) shift,
+          // leaving the geometry off-pivot by up to half the model's
+          // size - which on Kenney boats whose GLB pivots sit at one
+          // corner was enough to push the ship out of the ortho
+          // frustum entirely. The Group keeps centering pristine.
+          const wrapper = new THREE.Group();
+          wrapper.add(inner);
+          templates[name] = wrapper;
           glbLoadStatus.loaded += 1;
         } catch (err: any) {
           glbLoadStatus.failed += 1;
@@ -136,14 +158,19 @@ export function Render3D({ worldRef }: Props) {
       x: number,
       y: number,
       angle: number,
-      worldSize: number
+      worldSize: number,
+      tintColor: number
     ) {
       let mesh = active.get(key);
       if (!mesh) {
         const tpl = templates[modelName];
         if (tpl) {
           mesh = tpl.clone(true);
-          forceBasicMaterials(mesh, 0xffffff);
+          // Tint with the ship's defined color so even if the GLB has
+          // no per-mesh color (or it loads as black), the unit is at
+          // least visible in its data-defined hue. Vertex colors,
+          // when present, get the tint multiplied in by three.js.
+          forceBasicMaterials(mesh, tintColor);
         } else {
           mesh = new THREE.Mesh(
             fallbackGeo,
@@ -157,6 +184,11 @@ export function Render3D({ worldRef }: Props) {
       mesh.rotation.y = -angle + Math.PI / 2;
       const scale = worldSize / 15;
       mesh.scale.setScalar(scale);
+    }
+
+    function hexToInt(hex: string): number {
+      const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+      return m ? parseInt(m[1], 16) : 0xffffff;
     }
 
     function reap(keepKeys: Set<string>) {
@@ -185,7 +217,15 @@ export function Render3D({ worldRef }: Props) {
 
       const ps = SHIPS_BY_ID[w.player.classId];
       if (ps) {
-        place('player', ps.model, w.player.pos.x, w.player.pos.y, w.player.angle, w.player.size);
+        place(
+          'player',
+          ps.model,
+          w.player.pos.x,
+          w.player.pos.y,
+          w.player.angle,
+          w.player.size,
+          hexToInt(ps.color)
+        );
         keep.add('player');
       }
 
@@ -194,7 +234,7 @@ export function Render3D({ worldRef }: Props) {
         const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
         if (!arch?.model) continue;
         const key = 'e' + i;
-        place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size);
+        place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
         keep.add(key);
       }
 
