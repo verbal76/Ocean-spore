@@ -2,16 +2,12 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
 import { COLORS } from '../colors';
 import { BUILD_INFO } from '../__generated__/build-info';
+import { glbLoadStatus } from '../render3d/loadStatus';
 
 interface Props {
   onClose: () => void;
 }
 
-// Surfaces the current build / OTA identifiers so the operator can
-// tell at a glance which APK is installed and which JS bundle is
-// actually running. Pulls from src/__generated__/build-info.ts
-// (written by scripts/write-build-info.mjs in CI) plus the live
-// expo-updates runtime state.
 export function AboutOverlay({ onClose }: Props) {
   const updateId = (Updates as any).updateId ?? null;
   const isEmbedded = (Updates as any).isEmbeddedLaunch ?? true;
@@ -21,6 +17,12 @@ export function AboutOverlay({ onClose }: Props) {
     ? String(updateId).slice(0, 8)
     : 'embedded (no OTA)';
   const builtAtShort = BUILD_INFO.builtAt.split('T')[0];
+
+  const glbCount = `${glbLoadStatus.loaded}/${glbLoadStatus.total || '-'}`;
+  const glbLine =
+    glbLoadStatus.total === 0
+      ? 'not yet loaded (start a run first)'
+      : glbCount;
 
   return (
     <Pressable style={styles.scrim} onPress={onClose}>
@@ -43,6 +45,16 @@ export function AboutOverlay({ onClose }: Props) {
         <Row label="OTA" value={otaShort} />
         <Row label="SOURCE" value={isEmbedded ? 'embedded' : 'over-the-air'} />
 
+        <View style={styles.divider} />
+
+        <Row label="3D MODELS" value={glbLine} />
+        {glbLoadStatus.failed > 0 && (
+          <Row
+            label="FIRST ERR"
+            value={glbLoadStatus.firstError || '(none)'}
+          />
+        )}
+
         <Pressable style={styles.closeBtn} onPress={onClose}>
           <Text style={styles.closeBtnText}>CLOSE</Text>
         </Pressable>
@@ -55,7 +67,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
+      <Text style={styles.rowValue} numberOfLines={2}>{value}</Text>
     </View>
   );
 }
@@ -93,8 +105,9 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 5,
+    gap: 12,
   },
   rowLabel: {
     color: COLORS.textDim,

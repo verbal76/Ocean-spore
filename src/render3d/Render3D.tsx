@@ -7,15 +7,12 @@ import { SHIPS_BY_ID } from '../data/ships';
 import { World } from '../game/world';
 import { GLB_ASSETS } from './assets';
 import { loadModel } from './assetLoader';
+import { glbLoadStatus } from './loadStatus';
 
 interface Props {
   worldRef: { current: World };
 }
 
-// Tiny replacement for expo-three's Renderer. All it does is feed a
-// real WebGL context (from expo-gl) into three.js's WebGLRenderer
-// while mocking the DOM canvas interface that three.js touches at
-// construction time.
 function makeRenderer(gl: any): THREE.WebGLRenderer {
   const fakeCanvas: any = {
     width: gl.drawingBufferWidth,
@@ -40,11 +37,6 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
   return renderer;
 }
 
-// Convert every Mesh under root to MeshBasicMaterial so it renders
-// at full brightness regardless of lighting. The Kenney models have
-// embedded materials we don't always preserve color info from
-// during a clone(true), and PBR materials look dark without an
-// HDRI / environment map. Basic-material keeps things visible.
 function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
   root.traverse((obj: any) => {
     if (obj.isMesh) {
@@ -63,16 +55,11 @@ function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
   });
 }
 
-// Render the playfield as an orthographic top-down 3D scene. Game
-// logic still runs in world.ts as 2D physics; this component just
-// reads worldRef each frame and positions GLB meshes accordingly.
 export function Render3D({ worldRef }: Props) {
   const { width: sw, height: sh } = Dimensions.get('window');
   const startedRef = useRef(false);
   const mountedRef = useRef(true);
 
-  // Stop the render loop on unmount so RAF doesn't leak across
-  // playing -> dead -> playing cycles.
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -89,7 +76,6 @@ export function Render3D({ worldRef }: Props) {
 
     const scene = new THREE.Scene();
 
-    // Orthographic top-down camera.
     const camera = new THREE.OrthographicCamera(
       -sw / 2,
       sw / 2,
@@ -102,17 +88,21 @@ export function Render3D({ worldRef }: Props) {
     camera.up.set(0, 0, -1);
     camera.lookAt(0, 0, 0);
 
-    // Lighting kept in case any non-basic materials slip through.
     scene.add(new THREE.AmbientLight(0xffffff, 1.1));
     const dir = new THREE.DirectionalLight(0xffffff, 0.7);
     dir.position.set(50, 200, 50);
     scene.add(dir);
 
-    // Preload every GLB referenced in GLB_ASSETS. Each template is
-    // auto-scaled to roughly 30 world units along its largest axis,
-    // then re-centered.
     const templates: Record<string, THREE.Object3D> = {};
     const TEMPLATE_BASE_SIZE = 30;
+
+    // Reset diagnostic counters so the About overlay shows fresh
+    // numbers each time the playfield mounts.
+    glbLoadStatus.total = Object.keys(GLB_ASSETS).length;
+    glbLoadStatus.loaded = 0;
+    glbLoadStatus.failed = 0;
+    glbLoadStatus.firstError = '';
+
     await Promise.all(
       Object.entries(GLB_ASSETS).map(async ([name, mod]) => {
         try {
@@ -125,18 +115,19 @@ export function Render3D({ worldRef }: Props) {
           const center = box.getCenter(new THREE.Vector3());
           root.position.sub(center);
           templates[name] = root;
-        } catch (err) {
+          glbLoadStatus.loaded += 1;
+        } catch (err: any) {
+          glbLoadStatus.failed += 1;
+          const msg = err && err.message ? String(err.message) : String(err);
+          if (!glbLoadStatus.firstError) {
+            glbLoadStatus.firstError = `${name}: ${msg.slice(0, 60)}`;
+          }
           console.warn('[Render3D] Failed to load GLB', name, err);
         }
       })
     );
 
-    // Active meshes keyed by entity id.
     const active = new Map<string, THREE.Object3D>();
-
-    // Fallback geometry for when a GLB template failed to load.
-    // Visible red sphere makes the failure obvious in-game so we can
-    // diagnose (no logcat needed).
     const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
 
     function place(
@@ -154,8 +145,6 @@ export function Render3D({ worldRef }: Props) {
           mesh = tpl.clone(true);
           forceBasicMaterials(mesh, 0xffffff);
         } else {
-          // GLB failed to load - render a bright red sphere so the
-          // missing model is visually obvious.
           mesh = new THREE.Mesh(
             fallbackGeo,
             new THREE.MeshBasicMaterial({ color: 0xff3030 })
@@ -180,9 +169,7 @@ export function Render3D({ worldRef }: Props) {
     }
 
     function render() {
-      if (!mountedRef.current) {
-        return;
-      }
+      if (!mountedRef.current) return;
       const w = worldRef.current;
       if (!w) {
         requestAnimationFrame(render);
