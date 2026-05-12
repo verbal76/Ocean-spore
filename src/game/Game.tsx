@@ -381,9 +381,9 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         )}
 
         {w.pickups.map(
-          (pk, i) =>
+          (pk) =>
             onScreen(pk.pos.x, pk.pos.y, 30) && (
-              <Circle key={'pk' + i} cx={toX(pk.pos.x)} cy={toY(pk.pos.y)}
+              <Circle key={'pk' + pk.id} cx={toX(pk.pos.x)} cy={toY(pk.pos.y)}
                 r={(pk.kind === 'crate' ? 9 : 6) * zoom} fill={pk.color}
                 stroke="rgba(255,255,255,0.7)" strokeWidth={1}
                 opacity={pk.life < 3 ? (Math.sin(pk.life * 14) > 0 ? 1 : 0.35) : 1} />
@@ -403,9 +403,9 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         })}
 
         {w.bullets.map(
-          (b, i) =>
+          (b) =>
             onScreen(b.pos.x, b.pos.y, 20) && (
-              <Circle key={'b' + i} cx={toX(b.pos.x)} cy={toY(b.pos.y)} r={b.size * zoom} fill={b.color} />
+              <Circle key={'b' + b.id} cx={toX(b.pos.x)} cy={toY(b.pos.y)} r={b.size * zoom} fill={b.color} />
             )
         )}
 
