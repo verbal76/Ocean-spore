@@ -28,12 +28,12 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
     setPointerCapture: () => {},
     releasePointerCapture: () => {},
   };
-  const renderer = new THREE.WebGLRenderer({
-    canvas: fakeCanvas,
-    context: gl,
-  });
+  const renderer = new THREE.WebGLRenderer({ canvas: fakeCanvas, context: gl });
   renderer.setPixelRatio(1);
   renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight, false);
+  if ('outputColorSpace' in renderer) {
+    (renderer as any).outputColorSpace = THREE.SRGBColorSpace;
+  }
   return renderer;
 }
 
@@ -50,6 +50,9 @@ function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
         color,
         vertexColors: useVertexColors,
         side: THREE.DoubleSide,
+        transparent: false,
+        depthWrite: true,
+        depthTest: true,
       });
     }
   });
@@ -77,12 +80,7 @@ export function Render3D({ worldRef }: Props) {
     const scene = new THREE.Scene();
 
     const camera = new THREE.OrthographicCamera(
-      -sw / 2,
-      sw / 2,
-      sh / 2,
-      -sh / 2,
-      0.1,
-      4000
+      -sw / 2, sw / 2, sh / 2, -sh / 2, 0.1, 4000
     );
     camera.position.set(0, 800, 0);
     camera.up.set(0, 0, -1);
@@ -96,8 +94,6 @@ export function Render3D({ worldRef }: Props) {
     const templates: Record<string, THREE.Object3D> = {};
     const TEMPLATE_BASE_SIZE = 30;
 
-    // Reset diagnostic counters so the About overlay shows fresh
-    // numbers each time the playfield mounts.
     glbLoadStatus.total = Object.keys(GLB_ASSETS).length;
     glbLoadStatus.loaded = 0;
     glbLoadStatus.failed = 0;
@@ -106,15 +102,26 @@ export function Render3D({ worldRef }: Props) {
     await Promise.all(
       Object.entries(GLB_ASSETS).map(async ([name, mod]) => {
         try {
-          const root = await loadModel(mod);
-          const box = new THREE.Box3().setFromObject(root);
+          const inner = await loadModel(mod);
+          const box = new THREE.Box3().setFromObject(inner);
           const size = box.getSize(new THREE.Vector3());
           const maxDim = Math.max(size.x, size.y, size.z);
-          if (maxDim > 0.001) root.scale.setScalar(TEMPLATE_BASE_SIZE / maxDim);
-          box.setFromObject(root);
+          if (maxDim > 0.001) inner.scale.setScalar(TEMPLATE_BASE_SIZE / maxDim);
+          box.setFromObject(inner);
           const center = box.getCenter(new THREE.Vector3());
-          root.position.sub(center);
-          templates[name] = root;
+          inner.position.sub(center);
+
+          // Wrap the centered inner in an outer Group so place() can
+          // set position/rotation/scale on the wrapper without
+          // overwriting the inner's centering offset. Previously
+          // clone.position.set(x,0,y) discarded the (-center) shift,
+          // leaving the geometry off-pivot by up to half the model's
+          // size - which on Kenney boats whose GLB pivots sit at one
+          // corner was enough to push the ship out of the ortho
+          // frustum entirely. The Group keeps centering pristine.
+          const wrapper = new THREE.Group();
+          wrapper.add(inner);
+          templates[name] = wrapper;
           glbLoadStatus.loaded += 1;
         } catch (err: any) {
           glbLoadStatus.failed += 1;
@@ -131,19 +138,15 @@ export function Render3D({ worldRef }: Props) {
     const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
 
     function place(
-      key: string,
-      modelName: string,
-      x: number,
-      y: number,
-      angle: number,
-      worldSize: number
+      key: string, modelName: string, x: number, y: number,
+      angle: number, worldSize: number, tintColor: number
     ) {
       let mesh = active.get(key);
       if (!mesh) {
         const tpl = templates[modelName];
         if (tpl) {
           mesh = tpl.clone(true);
-          forceBasicMaterials(mesh, 0xffffff);
+          forceBasicMaterials(mesh, tintColor);
         } else {
           mesh = new THREE.Mesh(
             fallbackGeo,
@@ -157,6 +160,11 @@ export function Render3D({ worldRef }: Props) {
       mesh.rotation.y = -angle + Math.PI / 2;
       const scale = worldSize / 15;
       mesh.scale.setScalar(scale);
+    }
+
+    function hexToInt(hex: string): number {
+      const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+      return m ? parseInt(m[1], 16) : 0xffffff;
     }
 
     function reap(keepKeys: Set<string>) {
@@ -185,7 +193,8 @@ export function Render3D({ worldRef }: Props) {
 
       const ps = SHIPS_BY_ID[w.player.classId];
       if (ps) {
-        place('player', ps.model, w.player.pos.x, w.player.pos.y, w.player.angle, w.player.size);
+        place('player', ps.model, w.player.pos.x, w.player.pos.y,
+          w.player.angle, w.player.size, hexToInt(ps.color));
         keep.add('player');
       }
 
@@ -194,12 +203,21 @@ export function Render3D({ worldRef }: Props) {
         const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
         if (!arch?.model) continue;
         const key = 'e' + i;
-        place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size);
+        place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
         keep.add(key);
       }
 
       reap(keep);
 
+      // expo-gl shares its GL context with the OS-level GLView
+      // surface, which mutates GL state (binds, viewport, clear color)
+      // between frames. three.js caches "what the GPU is set to" and
+      // skips redundant calls, so externally-changed state silently
+      // invalidates the renderer's snapshot and frames draw empty.
+      // resetState() forces a re-push of all state on the next render.
+      if (typeof (renderer as any).resetState === 'function') {
+        (renderer as any).resetState();
+      }
       renderer.render(scene, camera);
       gl.endFrameEXP();
       requestAnimationFrame(render);
@@ -209,9 +227,6 @@ export function Render3D({ worldRef }: Props) {
   }
 
   return (
-    <GLView
-      style={StyleSheet.absoluteFill}
-      onContextCreate={onContextCreate}
-    />
+    <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />
   );
 }
