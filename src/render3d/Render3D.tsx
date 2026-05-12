@@ -218,6 +218,14 @@ export function Render3D({ worldRef }: Props) {
         angle: number, worldSize: number, tintColor: number
       ) {
         let mesh = active.get(key);
+        // If the model for this key changed (defensive: also when an
+        // enemy id is somehow reused), tear down the old mesh and
+        // rebuild from the new template.
+        if (mesh && (mesh as any).userData?.modelName !== modelName) {
+          scene.remove(mesh);
+          active.delete(key);
+          mesh = undefined;
+        }
         if (!mesh) {
           const tpl = templates[modelName];
           if (tpl) {
@@ -230,6 +238,7 @@ export function Render3D({ worldRef }: Props) {
             );
             mesh.frustumCulled = false;
           }
+          (mesh as any).userData = { modelName };
           mesh.visible = true;
           scene.add(mesh);
           active.set(key, mesh);
@@ -273,6 +282,16 @@ export function Render3D({ worldRef }: Props) {
           camera.lookAt(w.camera.x, 0, w.camera.y);
           camera.up.set(0, 0, -1);
 
+          // Update orthographic frustum from world.cameraZoom each
+          // frame so the SVG layer (which also reads cameraZoom)
+          // and the 3D layer stay in lockstep. zoom<1 = zoom out.
+          const z = w.cameraZoom || 1;
+          camera.left = -sw / 2 / z;
+          camera.right = sw / 2 / z;
+          camera.top = sh / 2 / z;
+          camera.bottom = -sh / 2 / z;
+          camera.updateProjectionMatrix();
+
           const keep = new Set<string>();
 
           const ps = SHIPS_BY_ID[w.player.classId];
@@ -286,7 +305,10 @@ export function Render3D({ worldRef }: Props) {
             const e = w.enemies[i];
             const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
             if (!arch?.model) continue;
-            const key = 'e' + i;
+            // Key by stable enemy id, not array index, so that splice
+            // on death doesn't make a survivor's mesh get reused for
+            // a different archetype next frame.
+            const key = 'e' + e.id;
             place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
             keep.add(key);
           }

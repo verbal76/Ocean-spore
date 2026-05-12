@@ -33,6 +33,8 @@ export interface World {
   salvageRings: SalvageRing[];
   run: Run;
   camera: Vec2;
+  cameraZoom: number;
+  enemyIdCounter: number;
   spawnTimer: number;
   crateTimer: number;
   dockedHarborIndex: number;
@@ -147,6 +149,8 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
       weaponMode: 0,
     },
     camera: { x: player.pos.x, y: player.pos.y },
+    cameraZoom: 1,
+    enemyIdCounter: 1,
     spawnTimer: 2,
     crateTimer: 22,
     dockedHarborIndex: -1,
@@ -244,12 +248,27 @@ function dropPartsPickup(world: World, pos: Vec2, amount: number) {
 
 function spawnEnemyAtEdge(world: World) {
   const cam = world.camera;
-  const a = Math.random() * Math.PI * 2;
   const r = 620;
-  const pos: Vec2 = {
-    x: clamp(cam.x + Math.cos(a) * r, 50, WORLD_WIDTH - 50),
-    y: clamp(cam.y + Math.sin(a) * r, 50, WORLD_HEIGHT - 50),
-  };
+  // Reroll the spawn angle up to 4 times if it lands inside an
+  // existing enemy's personal-space bubble. Prevents stacking that
+  // looks like one ship spawning on top of another.
+  const minDist = 120;
+  let pos: Vec2 = { x: 0, y: 0 };
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const a = Math.random() * Math.PI * 2;
+    pos = {
+      x: clamp(cam.x + Math.cos(a) * r, 50, WORLD_WIDTH - 50),
+      y: clamp(cam.y + Math.sin(a) * r, 50, WORLD_HEIGHT - 50),
+    };
+    let tooClose = false;
+    for (const e of world.enemies) {
+      if (Math.hypot(pos.x - e.pos.x, pos.y - e.pos.y) < minDist) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (!tooClose) break;
+  }
 
   const k = world.run.kills;
   const pool: typeof ENEMIES = [ENEMIES[0]];
@@ -264,19 +283,30 @@ function spawnEnemyAtEdge(world: World) {
   if (k > 150) pool.push(ENEMIES[2]);
   const arch = pool[Math.floor(Math.random() * pool.length)];
 
+  // After 25 kills, ~15% of enemies are promoted to elite tier: same
+  // model and archetype, scaled up. Reads as a mini-boss without
+  // needing new art or new data rows.
+  const isElite = k > 25 && Math.random() < 0.15;
+  const hullMul = isElite ? 4 : 1;
+  const dmgMul = isElite ? 1.4 : 1;
+  const sizeMul = isElite ? 1.8 : 1;
+  const partsMul = isElite ? 5 : 1;
+
   world.enemies.push({
+    id: world.enemyIdCounter++,
     archetype: arch.id,
     pos,
     vel: { x: 0, y: 0 },
     angle: Math.atan2(world.player.pos.y - pos.y, world.player.pos.x - pos.x),
-    hull: arch.hull,
-    maxHull: arch.hull,
+    hull: arch.hull * hullMul,
+    maxHull: arch.hull * hullMul,
     speed: arch.speed,
-    damage: arch.damage,
+    damage: arch.damage * dmgMul,
     fireCooldown: arch.fireRate ? Math.random() / arch.fireRate : 0,
-    size: arch.size,
+    size: arch.size * sizeMul,
     color: arch.color,
-    partsDrop: arch.partsDrop,
+    partsDrop: Math.ceil(arch.partsDrop * partsMul),
+    tier: isElite ? 'elite' : undefined,
   });
 }
 
@@ -284,6 +314,7 @@ function spawnBoss(world: World) {
   const cam = world.camera;
   const a = Math.random() * Math.PI * 2;
   world.enemies.push({
+    id: world.enemyIdCounter++,
     archetype: BOSS.id,
     pos: {
       x: clamp(cam.x + Math.cos(a) * 520, 90, WORLD_WIDTH - 90),
@@ -429,6 +460,23 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   world.camera.x = lerp(world.camera.x, p.pos.x, 1 - Math.exp(-4 * dt));
   world.camera.y = lerp(world.camera.y, p.pos.y, 1 - Math.exp(-4 * dt));
   world.shake = Math.max(0, world.shake - dt * 10);
+
+  // Pull the camera back when a large enemy is on screen so the
+  // player feels small next to it. Linear scale: size 30 -> 1.0,
+  // size 60 (boss) -> 0.55. Computed from the largest enemy within
+  // ~1.4x screen-half-extent of the camera, so off-screen spawns
+  // don't pre-emptively zoom.
+  let maxNearbySize = 0;
+  const zoomReach = 700;
+  for (const e of world.enemies) {
+    if (Math.hypot(e.pos.x - world.camera.x, e.pos.y - world.camera.y) < zoomReach) {
+      if (e.size > maxNearbySize) maxNearbySize = e.size;
+    }
+  }
+  const targetZoom = maxNearbySize > 30
+    ? Math.max(0.55, 1 - (maxNearbySize - 30) * 0.015)
+    : 1;
+  world.cameraZoom = lerp(world.cameraZoom, targetZoom, 1 - Math.exp(-1.5 * dt));
 
   p.fireCooldown -= dt;
   const wantFire = input.fire || input.autoFire;

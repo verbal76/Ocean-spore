@@ -265,15 +265,19 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
 
   const w = worldRef.current;
   const cam = w.camera;
+  const zoom = w.cameraZoom || 1;
   const shakeAmount = w.shake;
   const sx = (Math.random() - 0.5) * shakeAmount;
   const sy = (Math.random() - 0.5) * shakeAmount;
-  const camX = sw / 2 - cam.x + sx;
-  const camY = sh / 2 - cam.y + sy;
+  // World-coord -> screen-pixel transform. Both axes scale by zoom
+  // so this layer stays in lockstep with the 3D layer's orthographic
+  // frustum (Render3D.tsx applies the same zoom to camera bounds).
+  const toX = (x: number) => sw / 2 + (x - cam.x) * zoom + sx;
+  const toY = (y: number) => sh / 2 + (y - cam.y) * zoom + sy;
 
   function onScreen(x: number, y: number, margin: number) {
-    const px = x + camX;
-    const py = y + camY;
+    const px = toX(x);
+    const py = toY(y);
     return px > -margin && py > -margin && px < sw + margin && py < sh + margin;
   }
 
@@ -315,10 +319,10 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
           const pulseScale = 1 + 0.04 * Math.sin(r.pulse * 2.4);
           return (
             <G key={'sr' + i}>
-              <Circle cx={r.pos.x + camX} cy={r.pos.y + camY} r={r.radius * pulseScale}
+              <Circle cx={toX(r.pos.x)} cy={toY(r.pos.y)} r={r.radius * pulseScale * zoom}
                 fill="rgba(251,191,36,0.06)" stroke="#fbbf24" strokeWidth={1.5} strokeDasharray="4 8" />
-              <Circle cx={r.pos.x + camX} cy={r.pos.y + camY} r={9} fill="#fbbf24" opacity={0.9} />
-              <Circle cx={r.pos.x + camX} cy={r.pos.y + camY} r={4} fill="#fef3c7" />
+              <Circle cx={toX(r.pos.x)} cy={toY(r.pos.y)} r={9 * zoom} fill="#fbbf24" opacity={0.9} />
+              <Circle cx={toX(r.pos.x)} cy={toY(r.pos.y)} r={4 * zoom} fill="#fef3c7" />
             </G>
           );
         })}
@@ -327,13 +331,14 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
           (h, i) =>
             onScreen(h.pos.x, h.pos.y, 200) && (
               <G key={'h' + i}>
-                <Circle cx={h.pos.x + camX} cy={h.pos.y + camY} r={h.radius}
+                <Circle cx={toX(h.pos.x)} cy={toY(h.pos.y)} r={h.radius * zoom}
                   fill="rgba(251,191,36,0.06)"
                   stroke={i === w.nearHarborIndex ? '#fbbf24' : 'rgba(251,191,36,0.4)'}
                   strokeWidth={i === w.nearHarborIndex ? 3 : 1.5} strokeDasharray="6 6" />
-                <Circle cx={h.pos.x + camX} cy={h.pos.y + camY} r={30}
+                <Circle cx={toX(h.pos.x)} cy={toY(h.pos.y)} r={30 * zoom}
                   fill={COLORS.harbor} stroke="#7c5e2f" strokeWidth={2} />
-                <Rect x={h.pos.x + camX - 18} y={h.pos.y + camY - 4} width={36} height={8} fill="#7c5e2f" />
+                <Rect x={toX(h.pos.x) - 18 * zoom} y={toY(h.pos.y) - 4 * zoom}
+                  width={36 * zoom} height={8 * zoom} fill="#7c5e2f" />
               </G>
             )
         )}
@@ -341,19 +346,19 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         {w.pickups.map(
           (pk, i) =>
             onScreen(pk.pos.x, pk.pos.y, 30) && (
-              <Circle key={'pk' + i} cx={pk.pos.x + camX} cy={pk.pos.y + camY}
-                r={pk.kind === 'crate' ? 9 : 6} fill={pk.color}
+              <Circle key={'pk' + i} cx={toX(pk.pos.x)} cy={toY(pk.pos.y)}
+                r={(pk.kind === 'crate' ? 9 : 6) * zoom} fill={pk.color}
                 stroke="rgba(255,255,255,0.7)" strokeWidth={1}
                 opacity={pk.life < 3 ? (Math.sin(pk.life * 14) > 0 ? 1 : 0.35) : 1} />
             )
         )}
 
-        {!RENDER_3D && w.enemies.map((e, i) => {
+        {!RENDER_3D && w.enemies.map((e) => {
           if (!onScreen(e.pos.x, e.pos.y, 80)) return null;
-          const t = `translate(${e.pos.x + camX} ${e.pos.y + camY}) rotate(${(e.angle * 180) / Math.PI}) scale(${e.size})`;
+          const t = `translate(${toX(e.pos.x)} ${toY(e.pos.y)}) rotate(${(e.angle * 180) / Math.PI}) scale(${e.size * zoom})`;
           const poly = e.isBoss ? BOSS_POLY : ENEMY_POLY;
           return (
-            <G key={'e' + i} transform={t}>
+            <G key={'e' + e.id} transform={t}>
               <Polygon points={poly} fill={e.color} />
               <Circle cx={0} cy={0} r={0.25} fill="rgba(255,255,255,0.4)" />
             </G>
@@ -363,7 +368,7 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         {w.bullets.map(
           (b, i) =>
             onScreen(b.pos.x, b.pos.y, 20) && (
-              <Circle key={'b' + i} cx={b.pos.x + camX} cy={b.pos.y + camY} r={b.size} fill={b.color} />
+              <Circle key={'b' + i} cx={toX(b.pos.x)} cy={toY(b.pos.y)} r={b.size * zoom} fill={b.color} />
             )
         )}
 
@@ -371,7 +376,7 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
           const p = w.player;
           const hullFrac = p.hull / p.maxHull;
           const damaged = hullFrac < 0.45;
-          const t = `translate(${p.pos.x + camX} ${p.pos.y + camY}) rotate(${(p.angle * 180) / Math.PI}) scale(${p.size})`;
+          const t = `translate(${toX(p.pos.x)} ${toY(p.pos.y)}) rotate(${(p.angle * 180) / Math.PI}) scale(${p.size * zoom})`;
           return (
             <G transform={t}>
               <Polygon points={SHIP_POLY} fill={damaged ? '#f59e0b' : p.color}
@@ -385,9 +390,10 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         {w.particles.map((pt, i) => {
           if (!onScreen(pt.pos.x, pt.pos.y, 20)) return null;
           const a = Math.max(0, pt.life / pt.maxLife);
+          const ps = pt.size * zoom;
           return (
-            <Rect key={'p' + i} x={pt.pos.x + camX - pt.size / 2} y={pt.pos.y + camY - pt.size / 2}
-              width={pt.size} height={pt.size} fill={pt.color} opacity={a} />
+            <Rect key={'p' + i} x={toX(pt.pos.x) - ps / 2} y={toY(pt.pos.y) - ps / 2}
+              width={ps} height={ps} fill={pt.color} opacity={a} />
           );
         })}
       </Svg>
