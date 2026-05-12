@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  BackHandler,
   Dimensions,
   GestureResponderEvent,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -13,18 +15,13 @@ import { FireButton } from '../ui/FireButton';
 import { HUD } from '../ui/HUD';
 import { Joystick } from '../ui/Joystick';
 import { Run } from './types';
-import {
-  cycleWeapon,
-  dockAt,
-  InputState,
-  tick,
-  World,
-} from './world';
+import { cycleWeapon, dockAt, InputState, tick, World } from './world';
 
 interface Props {
   initialWorld: World;
   onDocked: (world: World, harborIdx: number) => void;
   onDied: (run: Run) => void;
+  onQuitToMenu: (world: World) => void;
 }
 
 const SHIP_POLY = '1.0,0 -0.55,-0.55 -0.30,0 -0.55,0.55';
@@ -32,22 +29,32 @@ const ENEMY_POLY = '0.9,0 -0.85,-0.6 -0.40,0 -0.85,0.6';
 const BOSS_POLY = '1.0,0 0.0,-0.7 -0.9,-0.5 -0.6,0 -0.9,0.5 0.0,0.7';
 
 type TouchKind = 'joystick' | 'fire' | 'pause' | 'auto' | 'weapon' | 'dock';
-interface TouchState {
-  kind: TouchKind;
-  startX: number;
-  startY: number;
-}
-interface Bounds {
-  cx: number;
-  cy: number;
-  radius?: number;
-  w?: number;
-  h?: number;
-}
+interface TouchState { kind: TouchKind; startX: number; startY: number; }
+interface Bounds { cx: number; cy: number; radius?: number; w?: number; h?: number; }
 
 const TAP_KINDS = new Set<TouchKind>(['pause', 'auto', 'weapon', 'dock']);
 
-export function Game({ initialWorld, onDocked, onDied }: Props) {
+// Static layout constants. Hit-areas are computed from these instead
+// of measureInWindow because Android returns stale Y values for
+// bottom-anchored absolute views, making touch hit-areas disagree
+// with the visible button positions (player tapped above the button
+// to activate it).
+const JOY_BOTTOM = 28;
+const JOY_LEFT = 22;
+const JOY_SIZE = 130;
+const FIRE_BOTTOM = 28;
+const FIRE_RIGHT = 22;
+const FIRE_SIZE = 100;
+const SMALLBTN_W = 70;
+const SMALLBTN_H = 36;
+const SMALLBTN_GAP = 8;
+const SMALL_FIRE_GAP = 10;
+const PAUSE_TOP = 56;
+const PAUSE_RIGHT = 12;
+const PAUSE_W = 90;
+const PAUSE_H = 38;
+
+export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   const worldRef = useRef<World>(initialWorld);
   const inputRef = useRef<InputState>({ dx: 0, dy: 0, fire: false, autoFire: true });
   const [, setTickCount] = useState(0);
@@ -57,10 +64,46 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
 
   const [knobOffset, setKnobOffset] = useState({ x: 0, y: 0 });
   const [firePressed, setFirePressed] = useState(false);
-  const touchesRef = useRef<Map<number, TouchState>>(new Map());
-  const boundsRef = useRef<Partial<Record<TouchKind, Bounds>>>({});
+  const touchesRef = useRef<Map<number | string, TouchState>>(new Map());
 
   const screen = Dimensions.get('window');
+  const sw = screen.width;
+  const sh = screen.height;
+
+  const bounds: Record<TouchKind, Bounds> = {
+    joystick: {
+      cx: JOY_LEFT + JOY_SIZE / 2,
+      cy: sh - JOY_BOTTOM - JOY_SIZE / 2,
+      radius: JOY_SIZE / 2,
+    },
+    fire: {
+      cx: sw - FIRE_RIGHT - FIRE_SIZE / 2,
+      cy: sh - FIRE_BOTTOM - FIRE_SIZE / 2,
+      radius: FIRE_SIZE / 2,
+    },
+    // AUTO + WEAPON sit in a row above the FIRE button. controlsRight
+    // uses alignItems:center on a column whose width equals FIRE's
+    // (the widest child), so the row centers on FIRE's X.
+    auto: {
+      cx: sw - FIRE_RIGHT - FIRE_SIZE / 2 - (SMALLBTN_W + SMALLBTN_GAP) / 2,
+      cy: sh - FIRE_BOTTOM - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
+      w: SMALLBTN_W,
+      h: SMALLBTN_H,
+    },
+    weapon: {
+      cx: sw - FIRE_RIGHT - FIRE_SIZE / 2 + (SMALLBTN_W + SMALLBTN_GAP) / 2,
+      cy: sh - FIRE_BOTTOM - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
+      w: SMALLBTN_W,
+      h: SMALLBTN_H,
+    },
+    pause: {
+      cx: sw - PAUSE_RIGHT - PAUSE_W / 2,
+      cy: PAUSE_TOP + PAUSE_H / 2,
+      w: PAUSE_W,
+      h: PAUSE_H,
+    },
+    dock: { cx: sw / 2, cy: sh * 0.4 + 30, w: 220, h: 70 },
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -73,100 +116,46 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       if (!pausedRef.current) {
         const w = worldRef.current;
         const res = tick(w, dt, inputRef.current);
-        if (res.died) {
-          onDied(w.run);
-          return;
-        }
+        if (res.died) { onDied(w.run); return; }
       }
       setTickCount((t) => (t + 1) | 0);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
-  // For AUTO + WEAPON: derive bounds from the FIRE button instead
-  // of measuring directly. Their parent uses position:absolute +
-  // bottom:N + alignItems:center, which makes Android's
-  // measureInWindow return Y values from before the bottom-anchored
-  // layout has settled - so the hit area lands above the visible
-  // button. The FIRE button doesn't have this issue (its parent
-  // container measures correctly), so anchoring off it gets us
-  // accurate Y for the row that sits above it.
-  function derivedAutoWeapon(): { auto: Bounds; weapon: Bounds } | null {
-    const fire = boundsRef.current.fire;
-    if (!fire || fire.radius === undefined) return null;
-    // Row sits above FIRE with gap ~10 + smallBtn height ~30.
-    const rowH = 36;
-    const rowCy = fire.cy - fire.radius - 10 - rowH / 2;
-    // Two buttons (AUTO, WEAPON), each roughly 70 wide, gap 8.
-    const btnW = 70;
-    const gap = 8;
-    // Row is centered with FIRE (alignItems:center on column).
-    const rowCx = fire.cx;
-    const autoCx = rowCx - (btnW + gap) / 2;
-    const weaponCx = rowCx + (btnW + gap) / 2;
-    return {
-      auto: { cx: autoCx, cy: rowCy, w: btnW, h: rowH },
-      weapon: { cx: weaponCx, cy: rowCy, w: btnW, h: rowH },
-    };
-  }
-
   function classify(x: number, y: number): TouchKind | null {
-    // Check joystick + fire first (continuous controls). They claim
-    // the touch even before tap-style classification runs.
-    const joy = boundsRef.current.joystick;
-    if (joy && joy.radius !== undefined &&
-        Math.hypot(x - joy.cx, y - joy.cy) <= joy.radius + 20) {
-      return 'joystick';
-    }
-    const fire = boundsRef.current.fire;
-    if (fire && fire.radius !== undefined &&
-        Math.hypot(x - fire.cx, y - fire.cy) <= fire.radius + 20) {
-      return 'fire';
+    const joy = bounds.joystick;
+    if (joy.radius !== undefined && Math.hypot(x - joy.cx, y - joy.cy) <= joy.radius + 20) return 'joystick';
+    const fire = bounds.fire;
+    if (fire.radius !== undefined && Math.hypot(x - fire.cx, y - fire.cy) <= fire.radius + 20) return 'fire';
+
+    const dock = bounds.dock;
+    if (worldRef.current.nearHarborIndex >= 0 && dock.w !== undefined && dock.h !== undefined) {
+      if (Math.abs(x - dock.cx) <= dock.w / 2 + 24 && Math.abs(y - dock.cy) <= dock.h / 2 + 24) return 'dock';
     }
 
-    // Tap-style: dock takes precedence when visible.
-    const dock = boundsRef.current.dock;
-    if (dock && worldRef.current.nearHarborIndex >= 0 && dock.w !== undefined && dock.h !== undefined) {
-      if (Math.abs(x - dock.cx) <= dock.w / 2 + 24 &&
-          Math.abs(y - dock.cy) <= dock.h / 2 + 24) {
-        return 'dock';
-      }
+    const pause = bounds.pause;
+    if (pause.w !== undefined && pause.h !== undefined) {
+      if (Math.abs(x - pause.cx) <= pause.w / 2 + 20 && Math.abs(y - pause.cy) <= pause.h / 2 + 20) return 'pause';
     }
 
-    // PAUSE: dynamic measurement (works correctly because top:N is
-    // measured immediately).
-    const pause = boundsRef.current.pause;
-    if (pause && pause.w !== undefined && pause.h !== undefined) {
-      if (Math.abs(x - pause.cx) <= pause.w / 2 + 28 &&
-          Math.abs(y - pause.cy) <= pause.h / 2 + 28) {
-        return 'pause';
-      }
+    const a = bounds.auto;
+    if (a.w !== undefined && a.h !== undefined) {
+      if (Math.abs(x - a.cx) <= a.w / 2 + 16 && Math.abs(y - a.cy) <= a.h / 2 + 16) return 'auto';
     }
-
-    // AUTO + WEAPON: derived bounds anchored on FIRE's measured
-    // position. Avoids the bottom-anchored measureInWindow bug.
-    const aw = derivedAutoWeapon();
-    if (aw) {
-      if (Math.abs(x - aw.auto.cx) <= aw.auto.w! / 2 + 24 &&
-          Math.abs(y - aw.auto.cy) <= aw.auto.h! / 2 + 24) {
-        return 'auto';
-      }
-      if (Math.abs(x - aw.weapon.cx) <= aw.weapon.w! / 2 + 24 &&
-          Math.abs(y - aw.weapon.cy) <= aw.weapon.h! / 2 + 24) {
-        return 'weapon';
-      }
+    const we = bounds.weapon;
+    if (we.w !== undefined && we.h !== undefined) {
+      if (Math.abs(x - we.cx) <= we.w / 2 + 16 && Math.abs(y - we.cy) <= we.h / 2 + 16) return 'weapon';
     }
 
     return null;
   }
 
   function updateJoystick(px: number, py: number) {
-    const b = boundsRef.current.joystick;
-    if (!b || b.radius === undefined) return;
+    const b = bounds.joystick;
+    if (b.radius === undefined) return;
     const dx = px - b.cx;
     const dy = py - b.cy;
     const r = b.radius;
@@ -190,10 +179,14 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
     inputRef.current.fire = on;
   }
 
+  function setPausedState(next: boolean) {
+    pausedRef.current = next;
+    setPaused(next);
+  }
+
   function triggerAction(kind: TouchKind) {
     if (kind === 'pause') {
-      pausedRef.current = !pausedRef.current;
-      setPaused(pausedRef.current);
+      setPausedState(!pausedRef.current);
     } else if (kind === 'auto') {
       const next = !autoFire;
       setAutoFire(next);
@@ -211,11 +204,15 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
     }
   }
 
+  // While paused, root touch dispatch is bypassed so the in-overlay
+  // Pressable buttons (RESUME, QUIT, etc.) receive their own taps.
   function shouldSetResponder(e: GestureResponderEvent) {
+    if (pausedRef.current) return false;
     return classify(e.nativeEvent.pageX, e.nativeEvent.pageY) !== null;
   }
 
   function processTouches(e: GestureResponderEvent) {
+    if (pausedRef.current) return;
     const active = e.nativeEvent.touches || [];
     const activeIds = new Set(active.map((t) => t.identifier));
 
@@ -225,11 +222,8 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
         const kind = classify(t.pageX, t.pageY);
         if (!kind) continue;
         touchesRef.current.set(id, { kind, startX: t.pageX, startY: t.pageY });
-        if (kind === 'fire') {
-          setFire(true);
-        } else if (TAP_KINDS.has(kind)) {
-          triggerAction(kind);
-        }
+        if (kind === 'fire') setFire(true);
+        else if (TAP_KINDS.has(kind)) triggerAction(kind);
       }
       const state = touchesRef.current.get(id);
       if (state?.kind === 'joystick') updateJoystick(t.pageX, t.pageY);
@@ -242,11 +236,8 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       const state = touchesRef.current.get(t.identifier);
       if (!state) continue;
       touchesRef.current.delete(t.identifier);
-      if (state.kind === 'fire') {
-        setFire(false);
-      } else if (state.kind === 'joystick') {
-        clearJoystick();
-      }
+      if (state.kind === 'fire') setFire(false);
+      else if (state.kind === 'joystick') clearJoystick();
     }
   }
 
@@ -258,32 +249,22 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
     touchesRef.current.clear();
   }
 
-  function buttonBounds(kind: TouchKind, ref: React.RefObject<View | null>) {
-    return () => {
-      const node = ref.current as any;
-      if (!node) return;
-      const update = (x: number, y: number, w: number, h: number) => {
-        if (w > 0 && h > 0) {
-          boundsRef.current[kind] = { cx: x + w / 2, cy: y + h / 2, w, h };
-        }
-      };
-      if (typeof node.measureInWindow === 'function') {
-        node.measureInWindow(update);
-        setTimeout(() => {
-          if (node && node.measureInWindow) node.measureInWindow(update);
-        }, 200);
-      }
-    };
+  function onResume() { setPausedState(false); }
+
+  function onQuitMenu() {
+    setPausedState(false);
+    onQuitToMenu(worldRef.current);
   }
 
-  // Refs only for the buttons that still measure dynamically.
-  const pauseRef = useRef<View>(null);
-  const dockRef = useRef<View>(null);
+  function onSaveQuit() {
+    onQuitToMenu(worldRef.current);
+    setTimeout(() => {
+      try { BackHandler.exitApp(); } catch { /* iOS / web no-op */ }
+    }, 80);
+  }
 
   const w = worldRef.current;
   const cam = w.camera;
-  const sw = screen.width;
-  const sh = screen.height;
   const shakeAmount = w.shake;
   const sx = (Math.random() - 0.5) * shakeAmount;
   const sy = (Math.random() - 0.5) * shakeAmount;
@@ -322,10 +303,7 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
         {waveLines.map((wl, i) => (
           <Line
             key={'w' + i}
-            x1={0}
-            y1={wl.y}
-            x2={sw}
-            y2={wl.y + 6}
+            x1={0} y1={wl.y} x2={sw} y2={wl.y + 6}
             stroke={stormy ? COLORS.stormWave : COLORS.oceanWave}
             strokeWidth={1.5}
           />
@@ -337,28 +315,10 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
           const pulseScale = 1 + 0.04 * Math.sin(r.pulse * 2.4);
           return (
             <G key={'sr' + i}>
-              <Circle
-                cx={r.pos.x + camX}
-                cy={r.pos.y + camY}
-                r={r.radius * pulseScale}
-                fill="rgba(251,191,36,0.06)"
-                stroke="#fbbf24"
-                strokeWidth={1.5}
-                strokeDasharray="4 8"
-              />
-              <Circle
-                cx={r.pos.x + camX}
-                cy={r.pos.y + camY}
-                r={9}
-                fill="#fbbf24"
-                opacity={0.9}
-              />
-              <Circle
-                cx={r.pos.x + camX}
-                cy={r.pos.y + camY}
-                r={4}
-                fill="#fef3c7"
-              />
+              <Circle cx={r.pos.x + camX} cy={r.pos.y + camY} r={r.radius * pulseScale}
+                fill="rgba(251,191,36,0.06)" stroke="#fbbf24" strokeWidth={1.5} strokeDasharray="4 8" />
+              <Circle cx={r.pos.x + camX} cy={r.pos.y + camY} r={9} fill="#fbbf24" opacity={0.9} />
+              <Circle cx={r.pos.x + camX} cy={r.pos.y + camY} r={4} fill="#fef3c7" />
             </G>
           );
         })}
@@ -367,30 +327,13 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
           (h, i) =>
             onScreen(h.pos.x, h.pos.y, 200) && (
               <G key={'h' + i}>
-                <Circle
-                  cx={h.pos.x + camX}
-                  cy={h.pos.y + camY}
-                  r={h.radius}
+                <Circle cx={h.pos.x + camX} cy={h.pos.y + camY} r={h.radius}
                   fill="rgba(251,191,36,0.06)"
                   stroke={i === w.nearHarborIndex ? '#fbbf24' : 'rgba(251,191,36,0.4)'}
-                  strokeWidth={i === w.nearHarborIndex ? 3 : 1.5}
-                  strokeDasharray="6 6"
-                />
-                <Circle
-                  cx={h.pos.x + camX}
-                  cy={h.pos.y + camY}
-                  r={30}
-                  fill={COLORS.harbor}
-                  stroke="#7c5e2f"
-                  strokeWidth={2}
-                />
-                <Rect
-                  x={h.pos.x + camX - 18}
-                  y={h.pos.y + camY - 4}
-                  width={36}
-                  height={8}
-                  fill="#7c5e2f"
-                />
+                  strokeWidth={i === w.nearHarborIndex ? 3 : 1.5} strokeDasharray="6 6" />
+                <Circle cx={h.pos.x + camX} cy={h.pos.y + camY} r={30}
+                  fill={COLORS.harbor} stroke="#7c5e2f" strokeWidth={2} />
+                <Rect x={h.pos.x + camX - 18} y={h.pos.y + camY - 4} width={36} height={8} fill="#7c5e2f" />
               </G>
             )
         )}
@@ -398,166 +341,103 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
         {w.pickups.map(
           (pk, i) =>
             onScreen(pk.pos.x, pk.pos.y, 30) && (
-              <Circle
-                key={'pk' + i}
-                cx={pk.pos.x + camX}
-                cy={pk.pos.y + camY}
-                r={pk.kind === 'crate' ? 9 : 6}
-                fill={pk.color}
-                stroke="rgba(255,255,255,0.7)"
-                strokeWidth={1}
-                opacity={pk.life < 3 ? (Math.sin(pk.life * 14) > 0 ? 1 : 0.35) : 1}
-              />
+              <Circle key={'pk' + i} cx={pk.pos.x + camX} cy={pk.pos.y + camY}
+                r={pk.kind === 'crate' ? 9 : 6} fill={pk.color}
+                stroke="rgba(255,255,255,0.7)" strokeWidth={1}
+                opacity={pk.life < 3 ? (Math.sin(pk.life * 14) > 0 ? 1 : 0.35) : 1} />
             )
         )}
 
-        {!RENDER_3D &&
-          w.enemies.map((e, i) => {
-            if (!onScreen(e.pos.x, e.pos.y, 80)) return null;
-            const t = `translate(${e.pos.x + camX} ${e.pos.y + camY}) rotate(${
-              (e.angle * 180) / Math.PI
-            }) scale(${e.size})`;
-            const poly = e.isBoss ? BOSS_POLY : ENEMY_POLY;
-            return (
-              <G key={'e' + i} transform={t}>
-                <Polygon points={poly} fill={e.color} />
-                <Circle cx={0} cy={0} r={0.25} fill="rgba(255,255,255,0.4)" />
-              </G>
-            );
-          })}
+        {!RENDER_3D && w.enemies.map((e, i) => {
+          if (!onScreen(e.pos.x, e.pos.y, 80)) return null;
+          const t = `translate(${e.pos.x + camX} ${e.pos.y + camY}) rotate(${(e.angle * 180) / Math.PI}) scale(${e.size})`;
+          const poly = e.isBoss ? BOSS_POLY : ENEMY_POLY;
+          return (
+            <G key={'e' + i} transform={t}>
+              <Polygon points={poly} fill={e.color} />
+              <Circle cx={0} cy={0} r={0.25} fill="rgba(255,255,255,0.4)" />
+            </G>
+          );
+        })}
 
         {w.bullets.map(
           (b, i) =>
             onScreen(b.pos.x, b.pos.y, 20) && (
-              <Circle
-                key={'b' + i}
-                cx={b.pos.x + camX}
-                cy={b.pos.y + camY}
-                r={b.size}
-                fill={b.color}
-              />
+              <Circle key={'b' + i} cx={b.pos.x + camX} cy={b.pos.y + camY} r={b.size} fill={b.color} />
             )
         )}
 
-        {!RENDER_3D &&
-          (() => {
-            const p = w.player;
-            const hullFrac = p.hull / p.maxHull;
-            const damaged = hullFrac < 0.45;
-            const t = `translate(${p.pos.x + camX} ${p.pos.y + camY}) rotate(${
-              (p.angle * 180) / Math.PI
-            }) scale(${p.size})`;
-            return (
-              <G transform={t}>
-                <Polygon
-                  points={SHIP_POLY}
-                  fill={damaged ? '#f59e0b' : p.color}
-                  stroke="rgba(255,255,255,0.25)"
-                  strokeWidth={0.04}
-                />
-                <Rect
-                  x={-0.2}
-                  y={-0.22}
-                  width={0.45}
-                  height={0.44}
-                  fill="rgba(255,255,255,0.30)"
-                />
-                {damaged && (
-                  <Circle cx={-0.4} cy={0} r={0.18} fill="rgba(248,113,113,0.55)" />
-                )}
-              </G>
-            );
-          })()}
+        {!RENDER_3D && (() => {
+          const p = w.player;
+          const hullFrac = p.hull / p.maxHull;
+          const damaged = hullFrac < 0.45;
+          const t = `translate(${p.pos.x + camX} ${p.pos.y + camY}) rotate(${(p.angle * 180) / Math.PI}) scale(${p.size})`;
+          return (
+            <G transform={t}>
+              <Polygon points={SHIP_POLY} fill={damaged ? '#f59e0b' : p.color}
+                stroke="rgba(255,255,255,0.25)" strokeWidth={0.04} />
+              <Rect x={-0.2} y={-0.22} width={0.45} height={0.44} fill="rgba(255,255,255,0.30)" />
+              {damaged && <Circle cx={-0.4} cy={0} r={0.18} fill="rgba(248,113,113,0.55)" />}
+            </G>
+          );
+        })()}
 
         {w.particles.map((pt, i) => {
           if (!onScreen(pt.pos.x, pt.pos.y, 20)) return null;
           const a = Math.max(0, pt.life / pt.maxLife);
           return (
-            <Rect
-              key={'p' + i}
-              x={pt.pos.x + camX - pt.size / 2}
-              y={pt.pos.y + camY - pt.size / 2}
-              width={pt.size}
-              height={pt.size}
-              fill={pt.color}
-              opacity={a}
-            />
+            <Rect key={'p' + i} x={pt.pos.x + camX - pt.size / 2} y={pt.pos.y + camY - pt.size / 2}
+              width={pt.size} height={pt.size} fill={pt.color} opacity={a} />
           );
         })}
       </Svg>
 
-      <HUD
-        run={w.run}
-        player={w.player}
-        weather={w.run.weather}
-        bossActive={!!boss}
-        bossHp={boss ? { current: boss.hull, max: boss.maxHull } : null}
-      />
+      <HUD run={w.run} player={w.player} weather={w.run.weather}
+        bossActive={!!boss} bossHp={boss ? { current: boss.hull, max: boss.maxHull } : null} />
 
       {w.nearHarborIndex >= 0 && (
-        <View
-          ref={dockRef}
-          onLayout={buttonBounds('dock', dockRef)}
-          style={styles.dockPrompt}
-          pointerEvents="box-none"
-        >
+        <View style={styles.dockPrompt} pointerEvents="none">
           <Text style={styles.dockPromptLabel}>DOCK AT</Text>
-          <Text style={styles.dockPromptName}>
-            {w.harbors[w.nearHarborIndex].name}
-          </Text>
+          <Text style={styles.dockPromptName}>{w.harbors[w.nearHarborIndex].name}</Text>
         </View>
       )}
 
-      <View style={styles.controlsLeft} pointerEvents="box-none">
-        <Joystick
-          knob={knobOffset}
-          onBounds={(cx, cy, radius) => {
-            boundsRef.current.joystick = { cx, cy, radius };
-          }}
-        />
+      <View style={styles.controlsLeft} pointerEvents="none">
+        <Joystick knob={knobOffset} />
       </View>
 
-      <View style={styles.controlsRight} pointerEvents="box-none">
-        <View style={styles.smallBtnRow} pointerEvents="box-none">
-          <View
-            style={[styles.smallBtn, autoFire && styles.smallBtnOn]}
-            pointerEvents="box-none"
-          >
+      <View style={styles.controlsRight} pointerEvents="none">
+        <View style={styles.smallBtnRow}>
+          <View style={[styles.smallBtn, autoFire && styles.smallBtnOn]}>
             <Text style={styles.smallBtnText}>AUTO</Text>
           </View>
-          <View
-            style={styles.smallBtn}
-            pointerEvents="box-none"
-          >
+          <View style={styles.smallBtn}>
             <Text style={styles.smallBtnText}>
-              {w.run.weaponMode === 0
-                ? 'SINGLE'
-                : w.run.weaponMode === 1
-                ? 'SPREAD'
-                : 'TWIN'}
+              {w.run.weaponMode === 0 ? 'SINGLE' : w.run.weaponMode === 1 ? 'SPREAD' : 'TWIN'}
             </Text>
           </View>
         </View>
-        <FireButton
-          pressed={firePressed}
-          onBounds={(cx, cy, radius) => {
-            boundsRef.current.fire = { cx, cy, radius };
-          }}
-        />
+        <FireButton pressed={firePressed} />
       </View>
 
-      <View
-        ref={pauseRef}
-        onLayout={buttonBounds('pause', pauseRef)}
-        style={styles.pauseBtn}
-        pointerEvents="box-none"
-      >
+      <View style={styles.pauseBtn} pointerEvents="none">
         <Text style={styles.pauseText}>{paused ? 'RESUME' : 'PAUSE'}</Text>
       </View>
 
       {paused && w.dockedHarborIndex < 0 && (
-        <View style={styles.pauseOverlay} pointerEvents="none">
+        <View style={styles.pauseOverlay}>
           <Text style={styles.pauseOverlayText}>PAUSED</Text>
+          <View style={styles.pauseMenu}>
+            <Pressable style={styles.pauseMenuPrimary} onPress={onResume}>
+              <Text style={styles.pauseMenuPrimaryText}>RESUME</Text>
+            </Pressable>
+            <Pressable style={styles.pauseMenuBtn} onPress={onQuitMenu}>
+              <Text style={styles.pauseMenuBtnText}>SAVE &amp; QUIT TO MAIN MENU</Text>
+            </Pressable>
+            <Pressable style={[styles.pauseMenuBtn, styles.pauseMenuDanger]} onPress={onSaveQuit}>
+              <Text style={[styles.pauseMenuBtnText, styles.pauseMenuDangerText]}>SAVE &amp; QUIT</Text>
+            </Pressable>
+          </View>
         </View>
       )}
     </View>
@@ -566,15 +446,15 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.ocean },
-  controlsLeft: { position: 'absolute', bottom: 28, left: 22 },
+  controlsLeft: { position: 'absolute', bottom: JOY_BOTTOM, left: JOY_LEFT },
   controlsRight: {
     position: 'absolute',
-    bottom: 28,
-    right: 22,
+    bottom: FIRE_BOTTOM,
+    right: FIRE_RIGHT,
     alignItems: 'center',
-    gap: 10,
+    gap: SMALL_FIRE_GAP,
   },
-  smallBtnRow: { flexDirection: 'row', gap: 8 },
+  smallBtnRow: { flexDirection: 'row', gap: SMALLBTN_GAP },
   smallBtn: {
     backgroundColor: 'rgba(3,16,28,0.6)',
     borderColor: COLORS.hudBorder,
@@ -582,19 +462,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
-    minWidth: 70,
+    minWidth: SMALLBTN_W,
+    height: SMALLBTN_H,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   smallBtnOn: {
     borderColor: COLORS.accent,
     backgroundColor: 'rgba(34,211,238,0.18)',
   },
-  smallBtnText: {
-    color: COLORS.text,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-  },
+  smallBtnText: { color: COLORS.text, fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
   dockPrompt: {
     position: 'absolute',
     top: '40%',
@@ -605,50 +482,50 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
   },
-  dockPromptLabel: {
-    color: COLORS.bg,
-    fontSize: 10,
-    letterSpacing: 3,
-    fontWeight: '800',
-  },
-  dockPromptName: {
-    color: COLORS.bg,
-    fontSize: 18,
-    fontWeight: '900',
-    letterSpacing: 2,
-    marginTop: 2,
-  },
+  dockPromptLabel: { color: COLORS.bg, fontSize: 10, letterSpacing: 3, fontWeight: '800' },
+  dockPromptName: { color: COLORS.bg, fontSize: 18, fontWeight: '900', letterSpacing: 2, marginTop: 2 },
   pauseBtn: {
     position: 'absolute',
-    top: 180,
-    right: 12,
+    top: PAUSE_TOP,
+    right: PAUSE_RIGHT,
+    width: PAUSE_W,
+    height: PAUSE_H,
     backgroundColor: 'rgba(3,16,28,0.7)',
     borderColor: COLORS.hudBorder,
     borderWidth: 1,
     paddingHorizontal: 18,
-    paddingVertical: 10,
     borderRadius: 999,
-  },
-  pauseText: {
-    color: COLORS.text,
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 2,
-  },
-  pauseOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(3,16,28,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pauseOverlayText: {
-    color: COLORS.text,
-    fontSize: 32,
-    fontWeight: '900',
-    letterSpacing: 8,
+  pauseText: { color: COLORS.text, fontSize: 13, fontWeight: '800', letterSpacing: 2 },
+  pauseOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(3,16,28,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    gap: 28,
   },
+  pauseOverlayText: { color: COLORS.text, fontSize: 32, fontWeight: '900', letterSpacing: 8 },
+  pauseMenu: { width: '100%', maxWidth: 360, gap: 12 },
+  pauseMenuPrimary: {
+    backgroundColor: COLORS.accent,
+    paddingVertical: 16,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  pauseMenuPrimaryText: { color: COLORS.bg, fontSize: 16, fontWeight: '900', letterSpacing: 3 },
+  pauseMenuBtn: {
+    paddingVertical: 14,
+    borderRadius: 999,
+    borderColor: COLORS.hudBorder,
+    borderWidth: 1,
+    backgroundColor: 'rgba(3,16,28,0.6)',
+    alignItems: 'center',
+  },
+  pauseMenuBtnText: { color: COLORS.text, fontSize: 12, fontWeight: '800', letterSpacing: 2 },
+  pauseMenuDanger: { borderColor: 'rgba(248,113,113,0.5)' },
+  pauseMenuDangerText: { color: '#fca5a5' },
 });
