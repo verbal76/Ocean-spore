@@ -36,6 +36,8 @@ export interface World {
   camera: Vec2;
   cameraZoom: number;
   enemyIdCounter: number;
+  bulletIdCounter: number;
+  pickupIdCounter: number;
   spawnTimer: number;
   crateTimer: number;
   dockedHarborIndex: number;
@@ -153,6 +155,8 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
     camera: { x: player.pos.x, y: player.pos.y },
     cameraZoom: 1,
     enemyIdCounter: 1,
+    bulletIdCounter: 1,
+    pickupIdCounter: 1,
     spawnTimer: 2,
     crateTimer: 22,
     dockedHarborIndex: -1,
@@ -239,6 +243,7 @@ function spawnParticles(world: World, pos: Vec2, color: string, count: number, s
 function dropPartsPickup(world: World, pos: Vec2, amount: number) {
   const a = Math.random() * Math.PI * 2;
   world.pickups.push({
+    id: world.pickupIdCounter++,
     pos: { x: pos.x + Math.cos(a) * 12, y: pos.y + Math.sin(a) * 12 },
     vel: { x: Math.cos(a) * 60, y: Math.sin(a) * 60 },
     life: 18,
@@ -345,6 +350,7 @@ function dropCrate(world: World) {
   const a = Math.random() * Math.PI * 2;
   const r = 280 + Math.random() * 240;
   world.pickups.push({
+    id: world.pickupIdCounter++,
     pos: {
       x: clamp(cam.x + Math.cos(a) * r, 40, WORLD_WIDTH - 40),
       y: clamp(cam.y + Math.sin(a) * r, 40, WORLD_HEIGHT - 40),
@@ -373,6 +379,7 @@ function fireBullets(world: World) {
   for (const off of offsets) {
     const a = p.angle + off;
     world.bullets.push({
+      id: world.bulletIdCounter++,
       pos: { x: p.pos.x + Math.cos(p.angle) * nose, y: p.pos.y + Math.sin(p.angle) * nose },
       vel: { x: Math.cos(a) * speed, y: Math.sin(a) * speed },
       life: 1.6,
@@ -585,6 +592,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
           const ang = Math.atan2(dy, dx) + spread;
           const nose = e.size * 1.6;
           world.bullets.push({
+            id: world.bulletIdCounter++,
             pos: { x: e.pos.x + Math.cos(ang) * nose, y: e.pos.y + Math.sin(ang) * nose },
             vel: { x: Math.cos(ang) * bspd, y: Math.sin(ang) * bspd },
             life: 2.5,
@@ -630,6 +638,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
         const a = Math.random() * Math.PI * 2;
         const r = ring.radius * 0.4 + Math.random() * (ring.radius * 0.6);
         world.pickups.push({
+          id: world.pickupIdCounter++,
           pos: { x: ring.pos.x + Math.cos(a) * r, y: ring.pos.y + Math.sin(a) * r },
           vel: { x: Math.cos(a) * 120, y: Math.sin(a) * 120 },
           life: 25,

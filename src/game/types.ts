@@ -60,6 +60,7 @@ export interface EnemyShip {
 }
 
 export interface Bullet {
+  id: number;
   pos: Vec2;
   vel: Vec2;
   life: number;
@@ -70,6 +71,7 @@ export interface Bullet {
 }
 
 export interface Pickup {
+  id: number;
   pos: Vec2;
   vel: Vec2;
   life: number;
