@@ -331,10 +331,14 @@ function fireBullets(world: World) {
       : p.weaponMode === 2
       ? [-0.06, 0.06]
       : [0];
+  // Spawn at the ship's bow tip. Rendered mesh max-dim = 50 * (size/15)
+  // ~= 3.33 * size, so the bow sits ~1.67 * size in front of the center.
+  // Use 1.6 to land just inside the bow tip rather than past it.
+  const nose = p.size * 1.6;
   for (const off of offsets) {
     const a = p.angle + off;
     world.bullets.push({
-      pos: { x: p.pos.x + Math.cos(p.angle) * 14, y: p.pos.y + Math.sin(p.angle) * 14 },
+      pos: { x: p.pos.x + Math.cos(p.angle) * nose, y: p.pos.y + Math.sin(p.angle) * nose },
       vel: { x: Math.cos(a) * speed, y: Math.sin(a) * speed },
       life: 1.6,
       damage: p.damage * (p.weaponMode === 1 ? 0.85 : 1),
@@ -503,8 +507,9 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
         for (let s = 0; s < shots; s++) {
           const spread = e.isBoss ? (s - 1) * 0.18 : 0;
           const ang = Math.atan2(dy, dx) + spread;
+          const nose = e.size * 1.6;
           world.bullets.push({
-            pos: { x: e.pos.x, y: e.pos.y },
+            pos: { x: e.pos.x + Math.cos(ang) * nose, y: e.pos.y + Math.sin(ang) * nose },
             vel: { x: Math.cos(ang) * bspd, y: Math.sin(ang) * bspd },
             life: 2.5,
             damage: e.damage * 0.6,

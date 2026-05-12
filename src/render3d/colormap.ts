@@ -30,17 +30,15 @@ let decodePromise: Promise<DecodedColormap | null> | null = null;
 
 export type ColormapSampler = (u: number, v: number) => [number, number, number];
 
-// sRGB->linear LUT for the 256 possible byte values. The renderer has
-// outputColorSpace=SRGBColorSpace, so it gamma-encodes whatever we
-// feed it as vertex colors. If we feed raw byte/255 (which is sRGB),
-// it gets gamma-encoded a SECOND time on output - midtones get lifted
-// and the whole palette looks washed out. Pre-converting sRGB->linear
-// at sample time means the renderer's output encoding lands us back
-// on the original sRGB byte values.
-const SRGB_TO_LINEAR = new Float32Array(256);
-for (let i = 0; i < 256; i++) {
-  const c = i / 255;
-  SRGB_TO_LINEAR[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+// Saturation multiplier applied in sRGB space before the linearization
+// step. Build #30 fixed the wash-out (sRGB double-encoding) but the
+// resulting Kenney palette still felt muted on a phone screen, so we
+// push each channel away from the per-pixel gray average by this
+// factor to recover more vivid hues. 1.0 = no change, 1.5 = +50%.
+const SATURATION = 1.5;
+
+function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
 
 function base64ToArrayBuffer(b64: string): ArrayBuffer {
@@ -125,7 +123,16 @@ export async function loadColormapSampler(): Promise<ColormapSampler | null> {
     const px = Math.min(width - 1, Math.floor(uc * width));
     const py = Math.min(height - 1, Math.floor(vc * height));
     const idx = (py * width + px) * 4;
-    return [SRGB_TO_LINEAR[rgba[idx]], SRGB_TO_LINEAR[rgba[idx + 1]], SRGB_TO_LINEAR[rgba[idx + 2]]];
+    // sRGB float, push away from gray for more saturation, then sRGB->linear
+    // so the renderer's output sRGB encoding lands on the boosted color.
+    let r = rgba[idx] / 255;
+    let g = rgba[idx + 1] / 255;
+    let b = rgba[idx + 2] / 255;
+    const gray = (r + g + b) / 3;
+    r = Math.max(0, Math.min(1, gray + (r - gray) * SATURATION));
+    g = Math.max(0, Math.min(1, gray + (g - gray) * SATURATION));
+    b = Math.max(0, Math.min(1, gray + (b - gray) * SATURATION));
+    return [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)];
   };
   return samplerCached;
 }

@@ -24,6 +24,13 @@
 //                            making the Kenney palette look washed
 //                            out. Pre-converting at sample time lands
 //                            the output back on original sRGB bytes.
+//   build #23 (2026-05-12) - bow-aligned bullet spawn + saturation 1.5x
+//                            on vertex-color bake. Bullets now spawn at
+//                            size*1.6 forward (~bow tip) instead of a
+//                            fixed 14 units; same for enemy bullets.
+//                            Saturation pushes each sample away from
+//                            its gray average so the Kenney palette
+//                            reads as colorful, not muted.
 module.exports = function (api) {
   api.cache(true);
   return {
