@@ -27,6 +27,10 @@
 //                            world border, 6000x6000 world,
 //                            noCompress plugin, tap-on-start, About
 //                            overlay, gear icon)
+//   build #12 (2026-05-12) - GLB visibility fix bundle (tint, force
+//                            visible, no-cull, recompute bounds,
+//                            magenta debug marker), startedRef reset
+//                            on unmount, PAUSE button overlap fix
 module.exports = function (api) {
   api.cache(true);
   return {

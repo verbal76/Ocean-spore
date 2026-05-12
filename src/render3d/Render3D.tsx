@@ -41,10 +41,13 @@ function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
   root.traverse((obj: any) => {
     if (obj.isMesh) {
       const old = obj.material;
-      const color =
-        old && old.color && typeof old.color.clone === 'function'
-          ? old.color.clone()
-          : new THREE.Color(fallbackColor);
+      // Use the ship's data-defined color unconditionally. We used
+      // to clone the GLB's old.color when present - but Kenney boats
+      // ship with material colors that include black/very-dark hues
+      // for trim and undersides, and a black MeshBasicMaterial
+      // against the dark blue ocean (#062238) is effectively
+      // invisible. The tint guarantees visibility.
+      const color = new THREE.Color(fallbackColor);
       const useVertexColors = !!(old && old.vertexColors);
       obj.material = new THREE.MeshBasicMaterial({
         color,
@@ -54,6 +57,12 @@ function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
         depthWrite: true,
         depthTest: true,
       });
+      // Defensive: some GLBs ship nodes with visible=false that we
+      // don't want to honor, and some have degenerate bounding
+      // spheres that cause frustumCulled=true to drop the mesh even
+      // when it's in view.
+      obj.visible = true;
+      obj.frustumCulled = false;
     }
   });
 }
@@ -67,6 +76,11 @@ export function Render3D({ worldRef }: Props) {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      // Reset so a later remount (e.g. docked -> playing) can
+      // reinitialize the scene. Without this, the gate at the top of
+      // onContextCreate would short-circuit and leave the second
+      // session with no render loop.
+      startedRef.current = false;
     };
   }, []);
 
@@ -111,6 +125,17 @@ export function Render3D({ worldRef }: Props) {
           const center = box.getCenter(new THREE.Vector3());
           inner.position.sub(center);
 
+          // Force fresh per-geometry bounds after the runtime scale.
+          // Frustum culling reads geometry.boundingSphere; stale or
+          // degenerate spheres from the GLB authoring tool can cull
+          // meshes even though they're inside the view.
+          inner.traverse((obj: any) => {
+            if (obj.isMesh && obj.geometry) {
+              obj.geometry.computeBoundingBox();
+              obj.geometry.computeBoundingSphere();
+            }
+          });
+
           // Wrap the centered inner in an outer Group so place() can
           // set position/rotation/scale on the wrapper without
           // overwriting the inner's centering offset. Previously
@@ -133,6 +158,20 @@ export function Render3D({ worldRef }: Props) {
         }
       })
     );
+
+    // Permanent debug marker at the world spawn point. Bright magenta
+    // cube, frustum-cull disabled, sits at the player's initial pos
+    // forever. If the user sees magenta but no ships, the GL pipeline
+    // is alive and the ship-specific path is the problem. If they
+    // see neither, GLView/renderer setup itself is failing silently
+    // (context create exit, render loop never starts, etc.).
+    const debugMarker = new THREE.Mesh(
+      new THREE.BoxGeometry(60, 60, 60),
+      new THREE.MeshBasicMaterial({ color: 0xff00ff })
+    );
+    debugMarker.position.set(3000, 0, 3000);
+    debugMarker.frustumCulled = false;
+    scene.add(debugMarker);
 
     const active = new Map<string, THREE.Object3D>();
     const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
