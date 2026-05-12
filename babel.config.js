@@ -17,6 +17,13 @@
 //                              diag with uv(.014) sample bytes.
 //                            APK build pulls latest src at gradle
 //                            time so everything ships embedded.
+//   build #22 (2026-05-12) - sRGB->linear convert vertex colors in
+//                            colormap sampler. Renderer outputs sRGB
+//                            so feeding it raw byte/255 (sRGB) double-
+//                            encoded the gamma, lifting midtones and
+//                            making the Kenney palette look washed
+//                            out. Pre-converting at sample time lands
+//                            the output back on original sRGB bytes.
 module.exports = function (api) {
   api.cache(true);
   return {

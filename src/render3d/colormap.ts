@@ -30,6 +30,19 @@ let decodePromise: Promise<DecodedColormap | null> | null = null;
 
 export type ColormapSampler = (u: number, v: number) => [number, number, number];
 
+// sRGB->linear LUT for the 256 possible byte values. The renderer has
+// outputColorSpace=SRGBColorSpace, so it gamma-encodes whatever we
+// feed it as vertex colors. If we feed raw byte/255 (which is sRGB),
+// it gets gamma-encoded a SECOND time on output - midtones get lifted
+// and the whole palette looks washed out. Pre-converting sRGB->linear
+// at sample time means the renderer's output encoding lands us back
+// on the original sRGB byte values.
+const SRGB_TO_LINEAR = new Float32Array(256);
+for (let i = 0; i < 256; i++) {
+  const c = i / 255;
+  SRGB_TO_LINEAR[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
 function base64ToArrayBuffer(b64: string): ArrayBuffer {
   if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
     try {
@@ -112,7 +125,7 @@ export async function loadColormapSampler(): Promise<ColormapSampler | null> {
     const px = Math.min(width - 1, Math.floor(uc * width));
     const py = Math.min(height - 1, Math.floor(vc * height));
     const idx = (py * width + px) * 4;
-    return [rgba[idx] / 255, rgba[idx + 1] / 255, rgba[idx + 2] / 255];
+    return [SRGB_TO_LINEAR[rgba[idx]], SRGB_TO_LINEAR[rgba[idx + 1]], SRGB_TO_LINEAR[rgba[idx + 2]]];
   };
   return samplerCached;
 }
