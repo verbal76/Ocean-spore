@@ -200,6 +200,18 @@ export function Render3D({ worldRef }: Props) {
 
       reap(keep);
 
+      // expo-gl shares the GL context with the OS-level GLView surface,
+      // which mutates GL state between frames (binds, clear color,
+      // viewport, etc.). three.js caches its own snapshot of "what the
+      // GPU is set to" and skips redundant calls, so if outside code
+      // changes the state the renderer will draw with wrong settings -
+      // sometimes resulting in completely empty frames (no ships).
+      // resetState() clears three.js's cache so it re-pushes everything
+      // on the next render. This is the documented fix for invisible
+      // meshes inside an Expo GLView.
+      if (typeof (renderer as any).resetState === 'function') {
+        (renderer as any).resetState();
+      }
       renderer.render(scene, camera);
       gl.endFrameEXP();
       requestAnimationFrame(render);

@@ -1,27 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '../colors';
-import { SHIPS } from '../data/ships';
 import { AboutOverlay } from './AboutOverlay';
 
 interface Props {
-  unlockedShips: string[];
+  captainName: string;
   highScore: number;
   lifetimeKills: number;
   lifetimeParts: number;
-  selectedShipId: string;
-  onSelectShip: (id: string) => void;
-  onStart: () => void;
+  onContinue: () => void;
+  onNewCaptain: () => void;
 }
 
-export function TitleScreen({
-  unlockedShips,
+export function SplashScreen({
+  captainName,
   highScore,
   lifetimeKills,
   lifetimeParts,
-  selectedShipId,
-  onSelectShip,
-  onStart,
+  onContinue,
+  onNewCaptain,
 }: Props) {
   const pulse = useRef(new Animated.Value(0)).current;
   const [showAbout, setShowAbout] = useState(false);
@@ -34,14 +31,11 @@ export function TitleScreen({
     ).start();
   }, [pulse]);
 
+  const hasCaptain = captainName.trim().length > 0;
   const hasLifetime = lifetimeKills > 0 || lifetimeParts > 0;
 
   return (
     <View style={styles.root}>
-      {/* Plain text 'INFO' label instead of a gear unicode char.
-          The gear glyph (U+2699) doesn't render in the default Android
-          system font on some devices and renders as a missing-glyph
-          box or nothing. Plain text is universally rendered. */}
       <Pressable
         style={styles.infoBtn}
         onPress={() => setShowAbout(true)}
@@ -56,56 +50,44 @@ export function TitleScreen({
         <Text style={styles.tag}>Start as a junk raft. Become a floating apocalypse.</Text>
       </View>
 
-      <View style={styles.shipPicker}>
-        <Text style={styles.shipPickerLabel}>SELECT VESSEL</Text>
-        <View style={styles.shipList}>
-          {SHIPS.map((s) => {
-            const unlocked = unlockedShips.includes(s.id);
-            const selected = s.id === selectedShipId;
-            return (
-              <Pressable
-                key={s.id}
-                disabled={!unlocked}
-                onPress={() => onSelectShip(s.id)}
-                style={[
-                  styles.shipChip,
-                  selected && styles.shipChipSelected,
-                  !unlocked && styles.shipChipLocked,
-                ]}
-              >
-                <Text style={[styles.shipChipName, !unlocked && styles.shipChipNameLocked]}>
-                  {s.name}
-                </Text>
-                <Text style={styles.shipChipDesc}>
-                  {unlocked ? s.description : `Unlock @ ${s.unlockKills} kills`}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
       <View style={styles.bottom}>
-        {highScore > 0 && (
-          <Text style={styles.high}>BEST {highScore}</Text>
+        {hasCaptain && (
+          <View style={styles.captainBlock}>
+            <Text style={styles.captainLabel}>LAST CAPTAIN</Text>
+            <Text style={styles.captainName}>{captainName}</Text>
+          </View>
         )}
+
+        {highScore > 0 && <Text style={styles.high}>BEST {highScore}</Text>}
         {hasLifetime && (
           <Text style={styles.lifetime}>
             LIFETIME · {lifetimeKills} kills · {lifetimeParts} parts
           </Text>
         )}
-        <Pressable onPress={onStart} style={styles.startBtn}>
+
+        <Pressable
+          onPress={onContinue}
+          disabled={!hasCaptain}
+          style={[styles.primaryBtn, !hasCaptain && styles.btnDisabled]}
+        >
           <Animated.Text
             style={[
-              styles.startText,
+              styles.primaryText,
               {
-                opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }),
+                opacity: hasCaptain
+                  ? pulse.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] })
+                  : 0.5,
               },
             ]}
           >
-            SET SAIL
+            CONTINUE
           </Animated.Text>
         </Pressable>
+
+        <Pressable onPress={onNewCaptain} style={styles.secondaryBtn}>
+          <Text style={styles.secondaryText}>NEW CAPTAIN</Text>
+        </Pressable>
+
         <Text style={styles.hint}>Joystick (L) moves · Auto-fire on · Tap FIRE for manual</Text>
       </View>
 
@@ -121,6 +103,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 64,
     paddingBottom: 36,
+    justifyContent: 'space-between',
   },
   infoBtn: {
     position: 'absolute',
@@ -142,7 +125,7 @@ const styles = StyleSheet.create({
   },
   heroWrap: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginTop: 60,
   },
   subtitle: {
     color: COLORS.textDim,
@@ -152,64 +135,39 @@ const styles = StyleSheet.create({
   },
   title: {
     color: COLORS.accent,
-    fontSize: 54,
+    fontSize: 64,
     fontWeight: '900',
     letterSpacing: 6,
     textAlign: 'center',
-    lineHeight: 58,
+    lineHeight: 68,
   },
   tag: {
     color: COLORS.textDim,
     fontSize: 13,
-    marginTop: 12,
+    marginTop: 14,
     letterSpacing: 1,
     textAlign: 'center',
-  },
-  shipPicker: {
-    flex: 1,
-  },
-  shipPickerLabel: {
-    color: COLORS.textDim,
-    fontSize: 11,
-    letterSpacing: 3,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  shipList: {
-    gap: 8,
-  },
-  shipChip: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  shipChipSelected: {
-    borderColor: COLORS.accent,
-    backgroundColor: 'rgba(34,211,238,0.10)',
-  },
-  shipChipLocked: {
-    opacity: 0.4,
-  },
-  shipChipName: {
-    color: COLORS.text,
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  shipChipNameLocked: {
-    color: COLORS.textMuted,
-  },
-  shipChipDesc: {
-    color: COLORS.textMuted,
-    fontSize: 11,
-    marginTop: 3,
   },
   bottom: {
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
+  },
+  captainBlock: {
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  captainLabel: {
+    color: COLORS.textDim,
+    fontSize: 10,
+    letterSpacing: 3,
+    fontWeight: '700',
+  },
+  captainName: {
+    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    marginTop: 4,
   },
   high: {
     color: COLORS.momentum,
@@ -223,24 +181,44 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     fontWeight: '600',
   },
-  startBtn: {
+  primaryBtn: {
     backgroundColor: COLORS.accent,
     paddingHorizontal: 56,
-    paddingVertical: 18,
+    paddingVertical: 16,
     borderRadius: 999,
-    marginTop: 6,
+    marginTop: 4,
+    minWidth: 240,
+    alignItems: 'center',
   },
-  startText: {
+  primaryText: {
     color: COLORS.bg,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
     letterSpacing: 4,
+  },
+  secondaryBtn: {
+    paddingHorizontal: 40,
+    paddingVertical: 14,
+    borderRadius: 999,
+    borderColor: COLORS.accent,
+    borderWidth: 1,
+    minWidth: 240,
+    alignItems: 'center',
+  },
+  secondaryText: {
+    color: COLORS.accent,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 3,
+  },
+  btnDisabled: {
+    opacity: 0.35,
   },
   hint: {
     color: COLORS.textMuted,
     fontSize: 11,
     letterSpacing: 1,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 4,
   },
 });
