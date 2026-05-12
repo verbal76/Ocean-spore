@@ -8,9 +8,11 @@ export const glbLoadStatus = {
   failed: 0,
   firstError: '',
   renderError: '',
+  renderStack: '',
   renderFrames: 0,
   initError: '',
   drawBufW: 0,
   drawBufH: 0,
   sceneChildren: 0,
+  texturesStripped: 0,
 };

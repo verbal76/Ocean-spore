@@ -63,6 +63,9 @@ export function AboutOverlay({ onClose }: Props) {
         {glbLoadStatus.renderError !== '' && (
           <Row label="RENDER ERR" value={glbLoadStatus.renderError} />
         )}
+        {glbLoadStatus.renderStack !== '' && (
+          <Row label="STACK" value={glbLoadStatus.renderStack} maxLines={8} />
+        )}
 
         <Pressable style={styles.closeBtn} onPress={onClose}>
           <Text style={styles.closeBtnText}>CLOSE</Text>
@@ -72,11 +75,11 @@ export function AboutOverlay({ onClose }: Props) {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, maxLines }: { label: string; value: string; maxLines?: number }) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue} numberOfLines={2}>{value}</Text>
+      <Text style={styles.rowValue} numberOfLines={maxLines ?? 2}>{value}</Text>
     </View>
   );
 }

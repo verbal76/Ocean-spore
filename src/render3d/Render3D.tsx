@@ -79,6 +79,7 @@ export function Render3D({ worldRef }: Props) {
     glbLoadStatus.failed = 0;
     glbLoadStatus.firstError = '';
     glbLoadStatus.renderError = '';
+    glbLoadStatus.renderStack = '';
     glbLoadStatus.renderFrames = 0;
     glbLoadStatus.initError = '';
     glbLoadStatus.drawBufW = gl && gl.drawingBufferWidth ? gl.drawingBufferWidth : 0;
@@ -141,9 +142,6 @@ export function Render3D({ worldRef }: Props) {
       );
 
       // Permanent debug marker - magenta cube at world spawn point.
-      // Left in place so we can verify the pipeline once a build
-      // ships. If the user sees the player ship, the marker should
-      // also be visible (same world coords).
       const debugMarker = new THREE.Mesh(
         new THREE.BoxGeometry(60, 60, 60),
         new THREE.MeshBasicMaterial({ color: 0xff00ff })
@@ -197,6 +195,13 @@ export function Render3D({ worldRef }: Props) {
         }
       }
 
+      // DIAGNOSTIC: temporarily skip place() of player + enemies. If
+      // the magenta debug cube renders alone with this flag on, the
+      // GLB-clone path (place + forceBasicMaterials) is what kills
+      // the render loop. If even the cube doesn't render, the
+      // problem is in the basic renderer setup itself.
+      const SKIP_GLB_SHIPS = true;
+
       function render() {
         if (!mountedRef.current) return;
         const w = worldRef.current;
@@ -211,25 +216,29 @@ export function Render3D({ worldRef }: Props) {
           camera.lookAt(w.camera.x, 0, w.camera.y);
           camera.up.set(0, 0, -1);
 
-          const keep = new Set<string>();
+          if (!SKIP_GLB_SHIPS) {
+            const keep = new Set<string>();
 
-          const ps = SHIPS_BY_ID[w.player.classId];
-          if (ps) {
-            place('player', ps.model, w.player.pos.x, w.player.pos.y,
-              w.player.angle, w.player.size, hexToInt(ps.color));
-            keep.add('player');
+            const ps = SHIPS_BY_ID[w.player.classId];
+            if (ps) {
+              place('player', ps.model, w.player.pos.x, w.player.pos.y,
+                w.player.angle, w.player.size, hexToInt(ps.color));
+              keep.add('player');
+            }
+
+            for (let i = 0; i < w.enemies.length; i++) {
+              const e = w.enemies[i];
+              const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
+              if (!arch?.model) continue;
+              const key = 'e' + i;
+              place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
+              keep.add(key);
+            }
+
+            reap(keep);
           }
 
-          for (let i = 0; i < w.enemies.length; i++) {
-            const e = w.enemies[i];
-            const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
-            if (!arch?.model) continue;
-            const key = 'e' + i;
-            place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
-            keep.add(key);
-          }
-
-          reap(keep);
+          glbLoadStatus.sceneChildren = scene.children.length;
 
           if (typeof (renderer as any).resetState === 'function') {
             (renderer as any).resetState();
@@ -237,11 +246,12 @@ export function Render3D({ worldRef }: Props) {
           renderer.render(scene, camera);
           gl.endFrameEXP();
           glbLoadStatus.renderFrames += 1;
-          glbLoadStatus.sceneChildren = scene.children.length;
         } catch (err: any) {
           if (!glbLoadStatus.renderError) {
             const msg = err && err.message ? String(err.message) : String(err);
             glbLoadStatus.renderError = msg.slice(0, 80);
+            const stack = err && err.stack ? String(err.stack) : '';
+            glbLoadStatus.renderStack = stack.slice(0, 240);
           }
           console.warn('[Render3D] frame error', err);
         }

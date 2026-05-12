@@ -11,54 +11,18 @@
 //                            enemies with own intents
 //   build #6 (2026-05-11) - 3D scaffold (deps + Render3D + GLB mapping),
 //                            gated behind RENDER_3D flag (still off)
-//   build #7 (2026-05-11) - pin three to 0.166.0 to match expo-three
-//                            8.0.0 peer-dep range (was 0.169.0, ERESOLVE)
-//   build #8 (2026-05-11) - drop expo-three (stale, pulled old
-//                            expo-modules-core; broke expo-font gradle
-//                            plugin chain). Inline tiny custom renderer.
-//   build #9 (2026-05-11) - persistent player memory: unlocked ships,
-//                            high score, lifetime totals saved to
-//                            expo-file-system
-//   build #10 (2026-05-11) - RENDER_3D=true + multi-touch root dispatcher
-//                            + PAUSE relocation + canvas-mock additions
-//   build #11 (2026-05-12) - fresh APK on demand: bundles every fix
-//                            from the failed OTAs (MeshBasicMaterial,
-//                            red sphere fallback, Buffer.from, no
-//                            world border, 6000x6000 world,
-//                            noCompress plugin, tap-on-start, About
-//                            overlay, gear icon)
-//   build #12 (2026-05-12) - GLB visibility fix bundle (tint, force
-//                            visible, no-cull, recompute bounds,
-//                            magenta debug marker), startedRef reset
-//                            on unmount, PAUSE button overlap fix
-//   build #13 (2026-05-12) - ROOT CAUSE: navigator.userAgent polyfill
-//                            (three.js GLTFParser was crashing every
-//                            parse with 'cannot read property match
-//                            of undefined' on RN). Render loop wrapped
-//                            in try/catch with renderError surfaced in
-//                            About panel; FRAMES heartbeat counter to
-//                            confirm the loop is actually running
-//   build #14 (2026-05-12) - aggressive diagnostics for 'GLBs load but
-//                            nothing visible': clear color set to
-//                            yellow (so we know if GLView is alive),
-//                            onContextCreate wrapped in try/catch with
-//                            initError surfaced, DRAW BUF dimensions
-//                            shown, SCENE child count shown. Once we
-//                            see whether GLView is rendering at all
-//                            we can target the real bug.
-//   build #15 (2026-05-12) - REAL ROOT CAUSE: GLBs ship a colormap.png
-//                            texture that the loader creates as
-//                            THREE.Texture with image=undefined in RN
-//                            (no Image constructor). On first frame,
-//                            WebGLTextures.getDimensions does
-//                            image.width with no null guard - throws
-//                            'cannot read property width of undefined'
-//                            every single frame, killing render loop.
-//                            Fix: strip ALL texture refs from every
-//                            material in parsed GLBs (we use
-//                            MeshBasicMaterial(color) anyway so the
-//                            refs are dead weight). Reverted clear
-//                            color from debug yellow back to ocean.
+//   build #7 (2026-05-11) - pin three to 0.166.0
+//   build #8 (2026-05-11) - drop expo-three
+//   build #9 (2026-05-11) - persistent player memory
+//   build #10 (2026-05-11) - RENDER_3D=true + multi-touch dispatcher
+//   build #11 (2026-05-12) - fresh APK with every OTA fix
+//   build #12 (2026-05-12) - GLB visibility fix bundle
+//   build #13 (2026-05-12) - navigator.userAgent polyfill
+//   build #14 (2026-05-12) - aggressive diagnostics (yellow clear,
+//                            FRAMES/DRAW BUF/SCENE counters)
+//   build #15 (2026-05-12) - strip GLB texture refs from materials
+//   build #16 (2026-05-12) - stack trace capture + SKIP_GLB_SHIPS
+//                            diagnostic flag to isolate cube vs ship
 module.exports = function (api) {
   api.cache(true);
   return {
