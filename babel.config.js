@@ -31,6 +31,17 @@
 //                            Saturation pushes each sample away from
 //                            its gray average so the Kenney palette
 //                            reads as colorful, not muted.
+//   build #24 (2026-05-12) - bundled APK with everything since #32:
+//                            - wake trails behind every ship
+//                            - rowing-boat (boat-row-*) yaw fix
+//                            - mini-boss/elite enemy tier
+//                            - camera zoom-out on large ships
+//                            - stable enemy ids (mesh-swap fix)
+//                            - stable bullet/pickup ids (key-reuse fix)
+//                            - OTA channel via updates.requestHeaders
+//                              (real fix; CHANNEL was blank on #32)
+//                            New APK is the carrier for all of the
+//                            above so they don't depend on OTAs.
 module.exports = function (api) {
   api.cache(true);
   return {
