@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '../colors';
 import { SHIPS } from '../data/ships';
+import { AboutOverlay } from './AboutOverlay';
 
 interface Props {
   unlockedShips: string[];
@@ -23,6 +24,7 @@ export function TitleScreen({
   onStart,
 }: Props) {
   const pulse = useRef(new Animated.Value(0)).current;
+  const [showAbout, setShowAbout] = useState(false);
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -36,6 +38,14 @@ export function TitleScreen({
 
   return (
     <View style={styles.root}>
+      <Pressable
+        style={styles.gear}
+        onPress={() => setShowAbout(true)}
+        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      >
+        <Text style={styles.gearText}>⚙</Text>
+      </Pressable>
+
       <View style={styles.heroWrap}>
         <Text style={styles.subtitle}>NAVAL SURVIVAL · ARCADE</Text>
         <Text style={styles.title}>{'OCEAN\nSPORE'}</Text>
@@ -94,6 +104,8 @@ export function TitleScreen({
         </Pressable>
         <Text style={styles.hint}>Joystick (L) moves · Auto-fire on · Tap FIRE for manual</Text>
       </View>
+
+      {showAbout && <AboutOverlay onClose={() => setShowAbout(false)} />}
     </View>
   );
 }
@@ -105,6 +117,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingTop: 64,
     paddingBottom: 36,
+  },
+  gear: {
+    position: 'absolute',
+    top: 56,
+    right: 18,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderColor: COLORS.hudBorder,
+    borderWidth: 1,
+    borderRadius: 22,
+    zIndex: 5,
+  },
+  gearText: {
+    color: COLORS.textDim,
+    fontSize: 22,
   },
   heroWrap: {
     alignItems: 'center',

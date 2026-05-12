@@ -14,19 +14,20 @@ const commit       = git('rev-parse HEAD', 'unknown');
 const commitShort  = git('rev-parse --short HEAD', 'unknown');
 const dirty        = git('status --porcelain') !== '';
 const builtAt      = new Date().toISOString();
+const buildNumber  = process.env.GITHUB_RUN_NUMBER || 'local';
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
 const app = JSON.parse(readFileSync('app.json', 'utf8'));
 const appVersion         = pkg.version ?? app?.expo?.version ?? 'unknown';
 const androidVersionCode = app?.expo?.android?.versionCode ?? null;
 
-const buildId = `build ${commitShort} (${branch})${dirty ? ' [dirty]' : ''}`;
+const buildId = `build #${buildNumber} ${commitShort} (${branch})${dirty ? ' [dirty]' : ''}`;
 const otaId   = `OTA ${commitShort} @ ${builtAt}`;
 
 const data = {
   branch, commit, commitShort, dirty, builtAt,
   appVersion, androidVersionCode,
-  buildId, otaId,
+  buildId, otaId, buildNumber,
 };
 
 mkdirSync(dirname(OUTPUT), { recursive: true });
@@ -36,9 +37,9 @@ writeFileSync(OUTPUT,
   `  branch: string; commit: string; commitShort: string;\n` +
   `  dirty: boolean; builtAt: string;\n` +
   `  appVersion: string; androidVersionCode: number | null;\n` +
-  `  buildId: string; otaId: string;\n` +
+  `  buildId: string; otaId: string; buildNumber: string;\n` +
   `}\n` +
   `export const BUILD_INFO: BuildInfo = ${JSON.stringify(data, null, 2)};\n`
 );
 
-console.log(`write-build-info: ${branch}@${commitShort}${dirty ? ' (dirty)' : ''}`);
+console.log(`write-build-info: ${branch}@${commitShort} build #${buildNumber}${dirty ? ' (dirty)' : ''}`);
