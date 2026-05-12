@@ -141,7 +141,6 @@ export function Render3D({ worldRef }: Props) {
         })
       );
 
-      // Permanent debug marker - magenta cube at world spawn point.
       const debugMarker = new THREE.Mesh(
         new THREE.BoxGeometry(60, 60, 60),
         new THREE.MeshBasicMaterial({ color: 0xff00ff })
@@ -195,12 +194,12 @@ export function Render3D({ worldRef }: Props) {
         }
       }
 
-      // DIAGNOSTIC: temporarily skip place() of player + enemies. If
-      // the magenta debug cube renders alone with this flag on, the
-      // GLB-clone path (place + forceBasicMaterials) is what kills
-      // the render loop. If even the cube doesn't render, the
-      // problem is in the basic renderer setup itself.
-      const SKIP_GLB_SHIPS = true;
+      // Build #24 stack trace pointed at a function named 'reset' as
+      // the throw site - that was renderer.resetState() being called
+      // every frame. three.js's resetState iterates known textures
+      // and crashes on a default texture with image=undefined in RN.
+      // Removing the call below; SKIP_GLB_SHIPS stays false now.
+      const SKIP_GLB_SHIPS = false;
 
       function render() {
         if (!mountedRef.current) return;
@@ -240,9 +239,9 @@ export function Render3D({ worldRef }: Props) {
 
           glbLoadStatus.sceneChildren = scene.children.length;
 
-          if (typeof (renderer as any).resetState === 'function') {
-            (renderer as any).resetState();
-          }
+          // renderer.resetState() removed - was the throw site per
+          // build #24 stack trace.
+
           renderer.render(scene, camera);
           gl.endFrameEXP();
           glbLoadStatus.renderFrames += 1;

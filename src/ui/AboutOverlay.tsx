@@ -1,5 +1,7 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
+import * as Clipboard from 'expo-clipboard';
 import { COLORS } from '../colors';
 import { BUILD_INFO } from '../__generated__/build-info';
 import { glbLoadStatus } from '../render3d/loadStatus';
@@ -9,6 +11,8 @@ interface Props {
 }
 
 export function AboutOverlay({ onClose }: Props) {
+  const [copied, setCopied] = useState(false);
+
   const updateId = (Updates as any).updateId ?? null;
   const isEmbedded = (Updates as any).isEmbeddedLaunch ?? true;
   const runtimeVer = (Updates as any).runtimeVersion ?? '?';
@@ -24,6 +28,39 @@ export function AboutOverlay({ onClose }: Props) {
       ? 'not yet loaded (start a run first)'
       : glbCount;
 
+  const rows: Array<[string, string]> = [
+    ['APP', `Ocean Spore v${BUILD_INFO.appVersion}`],
+    ['BUILD', `#${BUILD_INFO.buildNumber}`],
+    ['COMMIT', `${BUILD_INFO.commitShort}${BUILD_INFO.dirty ? ' [dirty]' : ''}`],
+    ['BRANCH', BUILD_INFO.branch],
+    ['BUILT', builtAtShort],
+    ['RUNTIME', runtimeVer],
+    ['CHANNEL', channel],
+    ['OTA', otaShort],
+    ['SOURCE', isEmbedded ? 'embedded' : 'over-the-air'],
+    ['3D MODELS', glbLine],
+  ];
+  if (glbLoadStatus.failed > 0) {
+    rows.push(['FIRST ERR', glbLoadStatus.firstError || '(none)']);
+  }
+  rows.push(['FRAMES', String(glbLoadStatus.renderFrames)]);
+  rows.push(['DRAW BUF', `${glbLoadStatus.drawBufW}x${glbLoadStatus.drawBufH}`]);
+  rows.push(['SCENE', String(glbLoadStatus.sceneChildren)]);
+  if (glbLoadStatus.initError !== '') rows.push(['INIT ERR', glbLoadStatus.initError]);
+  if (glbLoadStatus.renderError !== '') rows.push(['RENDER ERR', glbLoadStatus.renderError]);
+  if (glbLoadStatus.renderStack !== '') rows.push(['STACK', glbLoadStatus.renderStack]);
+
+  async function copyAll() {
+    const text = rows.map(([k, v]) => `${k}: ${v}`).join('\n');
+    try {
+      await Clipboard.setStringAsync(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* silent - copy is best-effort */
+    }
+  }
+
   return (
     <Pressable style={styles.scrim} onPress={onClose}>
       <Pressable
@@ -32,54 +69,54 @@ export function AboutOverlay({ onClose }: Props) {
       >
         <Text style={styles.title}>BUILD INFO</Text>
 
-        <Row label="APP" value={`Ocean Spore v${BUILD_INFO.appVersion}`} />
-        <Row label="BUILD" value={`#${BUILD_INFO.buildNumber}`} />
-        <Row label="COMMIT" value={`${BUILD_INFO.commitShort}${BUILD_INFO.dirty ? ' [dirty]' : ''}`} />
-        <Row label="BRANCH" value={BUILD_INFO.branch} />
-        <Row label="BUILT" value={builtAtShort} />
+        <ScrollView style={styles.scroll}>
+          {rows.map(([k, v], i) => {
+            const isDivider = (k === 'RUNTIME' && i > 0) || k === '3D MODELS';
+            return (
+              <View key={k + i}>
+                {isDivider && <View style={styles.divider} />}
+                <Row
+                  label={k}
+                  value={v}
+                  maxLines={k === 'STACK' ? 10 : 2}
+                />
+              </View>
+            );
+          })}
+        </ScrollView>
 
-        <View style={styles.divider} />
-
-        <Row label="RUNTIME" value={runtimeVer} />
-        <Row label="CHANNEL" value={channel} />
-        <Row label="OTA" value={otaShort} />
-        <Row label="SOURCE" value={isEmbedded ? 'embedded' : 'over-the-air'} />
-
-        <View style={styles.divider} />
-
-        <Row label="3D MODELS" value={glbLine} />
-        {glbLoadStatus.failed > 0 && (
-          <Row label="FIRST ERR" value={glbLoadStatus.firstError || '(none)'} />
-        )}
-        <Row label="FRAMES" value={String(glbLoadStatus.renderFrames)} />
-        <Row
-          label="DRAW BUF"
-          value={`${glbLoadStatus.drawBufW}x${glbLoadStatus.drawBufH}`}
-        />
-        <Row label="SCENE" value={String(glbLoadStatus.sceneChildren)} />
-        {glbLoadStatus.initError !== '' && (
-          <Row label="INIT ERR" value={glbLoadStatus.initError} />
-        )}
-        {glbLoadStatus.renderError !== '' && (
-          <Row label="RENDER ERR" value={glbLoadStatus.renderError} />
-        )}
-        {glbLoadStatus.renderStack !== '' && (
-          <Row label="STACK" value={glbLoadStatus.renderStack} maxLines={8} />
-        )}
-
-        <Pressable style={styles.closeBtn} onPress={onClose}>
-          <Text style={styles.closeBtnText}>CLOSE</Text>
-        </Pressable>
+        <View style={styles.btnRow}>
+          <Pressable style={styles.copyBtn} onPress={copyAll}>
+            <Text style={styles.copyBtnText}>{copied ? 'COPIED!' : 'COPY ALL'}</Text>
+          </Pressable>
+          <Pressable style={styles.closeBtn} onPress={onClose}>
+            <Text style={styles.closeBtnText}>CLOSE</Text>
+          </Pressable>
+        </View>
       </Pressable>
     </Pressable>
   );
 }
 
-function Row({ label, value, maxLines }: { label: string; value: string; maxLines?: number }) {
+function Row({
+  label,
+  value,
+  maxLines,
+}: {
+  label: string;
+  value: string;
+  maxLines?: number;
+}) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue} numberOfLines={maxLines ?? 2}>{value}</Text>
+      <Text
+        style={styles.rowValue}
+        numberOfLines={maxLines ?? 2}
+        selectable
+      >
+        {value}
+      </Text>
     </View>
   );
 }
@@ -100,6 +137,7 @@ const styles = StyleSheet.create({
   panel: {
     width: '100%',
     maxWidth: 380,
+    maxHeight: '90%',
     backgroundColor: COLORS.bg,
     borderColor: COLORS.hudBorder,
     borderWidth: 1,
@@ -113,6 +151,10 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
     textAlign: 'center',
     marginBottom: 16,
+  },
+  scroll: {
+    flexGrow: 0,
+    flexShrink: 1,
   },
   row: {
     flexDirection: 'row',
@@ -140,8 +182,28 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.hudBorder,
     marginVertical: 12,
   },
+  btnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 18,
+  },
+  copyBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(34,211,238,0.18)',
+    borderColor: COLORS.accent,
+    borderWidth: 1,
+    paddingVertical: 12,
+    borderRadius: 999,
+    alignItems: 'center',
+  },
+  copyBtnText: {
+    color: COLORS.accent,
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
   closeBtn: {
-    marginTop: 20,
+    flex: 1,
     backgroundColor: COLORS.accent,
     paddingVertical: 12,
     borderRadius: 999,
@@ -149,8 +211,8 @@ const styles = StyleSheet.create({
   },
   closeBtnText: {
     color: COLORS.bg,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '900',
-    letterSpacing: 3,
+    letterSpacing: 2,
   },
 });
