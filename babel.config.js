@@ -31,6 +31,13 @@
 //                            visible, no-cull, recompute bounds,
 //                            magenta debug marker), startedRef reset
 //                            on unmount, PAUSE button overlap fix
+//   build #13 (2026-05-12) - ROOT CAUSE: navigator.userAgent polyfill
+//                            (three.js GLTFParser was crashing every
+//                            parse with 'cannot read property match
+//                            of undefined' on RN). Render loop wrapped
+//                            in try/catch with renderError surfaced in
+//                            About panel; FRAMES heartbeat counter to
+//                            confirm the loop is actually running
 module.exports = function (api) {
   api.cache(true);
   return {

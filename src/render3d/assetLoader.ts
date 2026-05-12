@@ -7,6 +7,13 @@
 // Prefer Buffer.from(b64, 'base64') for the decode - it is the
 // canonical Node-compatible path and avoids the String.charCodeAt
 // loop. Fall back to atob if Buffer isn't available in the runtime.
+//
+// IMPORTANT: _polyfills MUST be the first import here. It patches
+// navigator.userAgent so three.js's GLTFParser constructor doesn't
+// crash on RN. CommonJS transpilation hoists all imports to file
+// top, so the polyfill module's side effects run before the
+// GLTFLoader module is loaded.
+import './_polyfills';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
