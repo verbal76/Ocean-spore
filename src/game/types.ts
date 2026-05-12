@@ -35,6 +35,7 @@ export interface PlayerShip {
 }
 
 export interface EnemyShip {
+  id: number;
   archetype: string;
   pos: Vec2;
   vel: Vec2;
@@ -48,6 +49,7 @@ export interface EnemyShip {
   color: string;
   partsDrop: number;
   isBoss?: boolean;
+  tier?: 'elite';
 }
 
 export interface Bullet {
