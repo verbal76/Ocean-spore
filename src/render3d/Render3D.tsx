@@ -213,6 +213,17 @@ export function Render3D({ worldRef }: Props) {
       const active = new Map<string, THREE.Object3D>();
       const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
 
+      // Per-model bow-axis offset. Most Kenney watercraft are
+      // authored with the bow along local +Z, which the default
+      // rotation formula (-angle + PI/2) maps to world +X at
+      // angle=0. The rowing-boat GLBs are authored with the bow
+      // along local +X instead, so they render 90 degrees off
+      // without this override.
+      const MODEL_YAW_OFFSET: Record<string, number> = {
+        'boat-row-small': 0,
+        'boat-row-large': 0,
+      };
+
       function place(
         key: string, modelName: string, x: number, y: number,
         angle: number, worldSize: number, tintColor: number
@@ -244,7 +255,8 @@ export function Render3D({ worldRef }: Props) {
           active.set(key, mesh);
         }
         mesh.position.set(x, 0, y);
-        mesh.rotation.y = -angle + Math.PI / 2;
+        const yawOffset = MODEL_YAW_OFFSET[modelName] ?? Math.PI / 2;
+        mesh.rotation.y = -angle + yawOffset;
         // Render at ~3.33x the data-defined worldSize so the ship is
         // visually punchy on the orthographic viewport. Builds #25-26
         // used scale=worldSize/15 with TEMPLATE_BASE_SIZE=50 giving

@@ -313,6 +313,43 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
           />
         ))}
 
+        {/*
+          Wake trails behind every ship. Drawn before salvage rings,
+          harbors, ships, bullets so foreground elements render on
+          top. Each ship's wake is a list of past stern positions
+          (newest first). We connect consecutive points with a Line,
+          fading opacity from ~0.55 at the stern to 0 at the tail and
+          widening with age to suggest the wake spreading.
+        */}
+        {(() => {
+          const items: any[] = [];
+          const pushWake = (wake: any[], keyPrefix: string, size: number) => {
+            const n = wake.length;
+            for (let i = 0; i < n - 1; i++) {
+              const a = wake[i];
+              const b = wake[i + 1];
+              if (!onScreen(a.x, a.y, 60) && !onScreen(b.x, b.y, 60)) continue;
+              const age = i / Math.max(1, n - 1);
+              const opacity = (1 - age) * 0.55;
+              const widthBase = size * 0.18 * (1 + age * 1.8);
+              items.push(
+                <Line
+                  key={keyPrefix + i}
+                  x1={toX(a.x)} y1={toY(a.y)}
+                  x2={toX(b.x)} y2={toY(b.y)}
+                  stroke="#e0f2fe"
+                  strokeOpacity={opacity}
+                  strokeWidth={widthBase * zoom}
+                  strokeLinecap="round"
+                />
+              );
+            }
+          };
+          pushWake(w.player.wake, 'pw', w.player.size);
+          for (const e of w.enemies) pushWake(e.wake, 'ew' + e.id + '_', e.size);
+          return items;
+        })()}
+
         {w.salvageRings.map((r, i) => {
           if (!r.active) return null;
           if (!onScreen(r.pos.x, r.pos.y, 120)) return null;
