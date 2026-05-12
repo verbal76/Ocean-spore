@@ -38,12 +38,16 @@ export function TitleScreen({
 
   return (
     <View style={styles.root}>
+      {/* Plain text 'INFO' label instead of a gear unicode char.
+          The gear glyph (U+2699) doesn't render in the default Android
+          system font on some devices and renders as a missing-glyph
+          box or nothing. Plain text is universally rendered. */}
       <Pressable
-        style={styles.gear}
+        style={styles.infoBtn}
         onPress={() => setShowAbout(true)}
-        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        hitSlop={{ top: 16, bottom: 16, left: 16, right: 16 }}
       >
-        <Text style={styles.gearText}>⚙</Text>
+        <Text style={styles.infoBtnText}>INFO</Text>
       </Pressable>
 
       <View style={styles.heroWrap}>
@@ -118,23 +122,23 @@ const styles = StyleSheet.create({
     paddingTop: 64,
     paddingBottom: 36,
   },
-  gear: {
+  infoBtn: {
     position: 'absolute',
     top: 56,
     right: 18,
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderColor: COLORS.hudBorder,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(34,211,238,0.12)',
+    borderColor: COLORS.accent,
     borderWidth: 1,
-    borderRadius: 22,
+    borderRadius: 999,
     zIndex: 5,
   },
-  gearText: {
-    color: COLORS.textDim,
-    fontSize: 22,
+  infoBtnText: {
+    color: COLORS.accent,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 2,
   },
   heroWrap: {
     alignItems: 'center',

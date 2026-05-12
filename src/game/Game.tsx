@@ -45,9 +45,6 @@ interface Bounds {
   h?: number;
 }
 
-// Tap-style controls fire their action on touch-START so they
-// respond instantly without relying on accurate end-detection.
-// Press-and-hold controls (joystick, fire) keep their hold semantics.
 const TAP_KINDS = new Set<TouchKind>(['pause', 'auto', 'weapon', 'dock']);
 
 export function Game({ initialWorld, onDocked, onDied }: Props) {
@@ -90,23 +87,80 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
     };
   }, []);
 
+  // For AUTO + WEAPON: derive bounds from the FIRE button instead
+  // of measuring directly. Their parent uses position:absolute +
+  // bottom:N + alignItems:center, which makes Android's
+  // measureInWindow return Y values from before the bottom-anchored
+  // layout has settled - so the hit area lands above the visible
+  // button. The FIRE button doesn't have this issue (its parent
+  // container measures correctly), so anchoring off it gets us
+  // accurate Y for the row that sits above it.
+  function derivedAutoWeapon(): { auto: Bounds; weapon: Bounds } | null {
+    const fire = boundsRef.current.fire;
+    if (!fire || fire.radius === undefined) return null;
+    // Row sits above FIRE with gap ~10 + smallBtn height ~30.
+    const rowH = 36;
+    const rowCy = fire.cy - fire.radius - 10 - rowH / 2;
+    // Two buttons (AUTO, WEAPON), each roughly 70 wide, gap 8.
+    const btnW = 70;
+    const gap = 8;
+    // Row is centered with FIRE (alignItems:center on column).
+    const rowCx = fire.cx;
+    const autoCx = rowCx - (btnW + gap) / 2;
+    const weaponCx = rowCx + (btnW + gap) / 2;
+    return {
+      auto: { cx: autoCx, cy: rowCy, w: btnW, h: rowH },
+      weapon: { cx: weaponCx, cy: rowCy, w: btnW, h: rowH },
+    };
+  }
+
   function classify(x: number, y: number): TouchKind | null {
-    const order: TouchKind[] = ['joystick', 'fire', 'dock', 'pause', 'auto', 'weapon'];
-    for (const kind of order) {
-      const b = boundsRef.current[kind];
-      if (!b) continue;
-      if (kind === 'dock' && worldRef.current.nearHarborIndex < 0) continue;
-      if (b.radius !== undefined) {
-        if (Math.hypot(x - b.cx, y - b.cy) <= b.radius + 20) return kind;
-      } else if (b.w !== undefined && b.h !== undefined) {
-        // Generous hit-slop on rect buttons so small UI doesn't miss.
-        if (
-          Math.abs(x - b.cx) <= b.w / 2 + 24 &&
-          Math.abs(y - b.cy) <= b.h / 2 + 24
-        )
-          return kind;
+    // Check joystick + fire first (continuous controls). They claim
+    // the touch even before tap-style classification runs.
+    const joy = boundsRef.current.joystick;
+    if (joy && joy.radius !== undefined &&
+        Math.hypot(x - joy.cx, y - joy.cy) <= joy.radius + 20) {
+      return 'joystick';
+    }
+    const fire = boundsRef.current.fire;
+    if (fire && fire.radius !== undefined &&
+        Math.hypot(x - fire.cx, y - fire.cy) <= fire.radius + 20) {
+      return 'fire';
+    }
+
+    // Tap-style: dock takes precedence when visible.
+    const dock = boundsRef.current.dock;
+    if (dock && worldRef.current.nearHarborIndex >= 0 && dock.w !== undefined && dock.h !== undefined) {
+      if (Math.abs(x - dock.cx) <= dock.w / 2 + 24 &&
+          Math.abs(y - dock.cy) <= dock.h / 2 + 24) {
+        return 'dock';
       }
     }
+
+    // PAUSE: dynamic measurement (works correctly because top:N is
+    // measured immediately).
+    const pause = boundsRef.current.pause;
+    if (pause && pause.w !== undefined && pause.h !== undefined) {
+      if (Math.abs(x - pause.cx) <= pause.w / 2 + 28 &&
+          Math.abs(y - pause.cy) <= pause.h / 2 + 28) {
+        return 'pause';
+      }
+    }
+
+    // AUTO + WEAPON: derived bounds anchored on FIRE's measured
+    // position. Avoids the bottom-anchored measureInWindow bug.
+    const aw = derivedAutoWeapon();
+    if (aw) {
+      if (Math.abs(x - aw.auto.cx) <= aw.auto.w! / 2 + 24 &&
+          Math.abs(y - aw.auto.cy) <= aw.auto.h! / 2 + 24) {
+        return 'auto';
+      }
+      if (Math.abs(x - aw.weapon.cx) <= aw.weapon.w! / 2 + 24 &&
+          Math.abs(y - aw.weapon.cy) <= aw.weapon.h! / 2 + 24) {
+        return 'weapon';
+      }
+    }
+
     return null;
   }
 
@@ -174,8 +228,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
         if (kind === 'fire') {
           setFire(true);
         } else if (TAP_KINDS.has(kind)) {
-          // Tap-style: fire immediately on touch start so the
-          // button responds without needing accurate end detection.
           triggerAction(kind);
         }
       }
@@ -195,7 +247,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       } else if (state.kind === 'joystick') {
         clearJoystick();
       }
-      // Tap-style actions already fired on start; nothing to do here.
     }
   }
 
@@ -216,21 +267,17 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
           boundsRef.current[kind] = { cx: x + w / 2, cy: y + h / 2, w, h };
         }
       };
-      // measureInWindow is async; sometimes returns (0,0,0,0) on the
-      // first call before layout has fully settled on Android. Retry
-      // after a tick to catch the real coords.
       if (typeof node.measureInWindow === 'function') {
         node.measureInWindow(update);
         setTimeout(() => {
           if (node && node.measureInWindow) node.measureInWindow(update);
-        }, 150);
+        }, 200);
       }
     };
   }
 
+  // Refs only for the buttons that still measure dynamically.
   const pauseRef = useRef<View>(null);
-  const autoRef = useRef<View>(null);
-  const weaponRef = useRef<View>(null);
   const dockRef = useRef<View>(null);
 
   const w = worldRef.current;
@@ -473,16 +520,12 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       <View style={styles.controlsRight} pointerEvents="box-none">
         <View style={styles.smallBtnRow} pointerEvents="box-none">
           <View
-            ref={autoRef}
-            onLayout={buttonBounds('auto', autoRef)}
             style={[styles.smallBtn, autoFire && styles.smallBtnOn]}
             pointerEvents="box-none"
           >
             <Text style={styles.smallBtnText}>AUTO</Text>
           </View>
           <View
-            ref={weaponRef}
-            onLayout={buttonBounds('weapon', weaponRef)}
             style={styles.smallBtn}
             pointerEvents="box-none"
           >
@@ -539,6 +582,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
+    minWidth: 70,
+    alignItems: 'center',
   },
   smallBtnOn: {
     borderColor: COLORS.accent,
