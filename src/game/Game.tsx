@@ -45,6 +45,11 @@ interface Bounds {
   h?: number;
 }
 
+// Tap-style controls fire their action on touch-START so they
+// respond instantly without relying on accurate end-detection.
+// Press-and-hold controls (joystick, fire) keep their hold semantics.
+const TAP_KINDS = new Set<TouchKind>(['pause', 'auto', 'weapon', 'dock']);
+
 export function Game({ initialWorld, onDocked, onDied }: Props) {
   const worldRef = useRef<World>(initialWorld);
   const inputRef = useRef<InputState>({ dx: 0, dy: 0, fire: false, autoFire: true });
@@ -92,11 +97,12 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       if (!b) continue;
       if (kind === 'dock' && worldRef.current.nearHarborIndex < 0) continue;
       if (b.radius !== undefined) {
-        if (Math.hypot(x - b.cx, y - b.cy) <= b.radius + 16) return kind;
+        if (Math.hypot(x - b.cx, y - b.cy) <= b.radius + 20) return kind;
       } else if (b.w !== undefined && b.h !== undefined) {
+        // Generous hit-slop on rect buttons so small UI doesn't miss.
         if (
-          Math.abs(x - b.cx) <= b.w / 2 + 12 &&
-          Math.abs(y - b.cy) <= b.h / 2 + 12
+          Math.abs(x - b.cx) <= b.w / 2 + 24 &&
+          Math.abs(y - b.cy) <= b.h / 2 + 24
         )
           return kind;
       }
@@ -165,7 +171,13 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
         const kind = classify(t.pageX, t.pageY);
         if (!kind) continue;
         touchesRef.current.set(id, { kind, startX: t.pageX, startY: t.pageY });
-        if (kind === 'fire') setFire(true);
+        if (kind === 'fire') {
+          setFire(true);
+        } else if (TAP_KINDS.has(kind)) {
+          // Tap-style: fire immediately on touch start so the
+          // button responds without needing accurate end detection.
+          triggerAction(kind);
+        }
       }
       const state = touchesRef.current.get(id);
       if (state?.kind === 'joystick') updateJoystick(t.pageX, t.pageY);
@@ -178,14 +190,12 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
       const state = touchesRef.current.get(t.identifier);
       if (!state) continue;
       touchesRef.current.delete(t.identifier);
-      const endKind = classify(t.pageX, t.pageY);
       if (state.kind === 'fire') {
         setFire(false);
       } else if (state.kind === 'joystick') {
         clearJoystick();
-      } else if (endKind === state.kind) {
-        triggerAction(state.kind);
       }
+      // Tap-style actions already fired on start; nothing to do here.
     }
   }
 
@@ -200,10 +210,20 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
   function buttonBounds(kind: TouchKind, ref: React.RefObject<View | null>) {
     return () => {
       const node = ref.current as any;
-      if (node && typeof node.measureInWindow === 'function') {
-        node.measureInWindow((x: number, y: number, w: number, h: number) => {
+      if (!node) return;
+      const update = (x: number, y: number, w: number, h: number) => {
+        if (w > 0 && h > 0) {
           boundsRef.current[kind] = { cx: x + w / 2, cy: y + h / 2, w, h };
-        });
+        }
+      };
+      // measureInWindow is async; sometimes returns (0,0,0,0) on the
+      // first call before layout has fully settled on Android. Retry
+      // after a tick to catch the real coords.
+      if (typeof node.measureInWindow === 'function') {
+        node.measureInWindow(update);
+        setTimeout(() => {
+          if (node && node.measureInWindow) node.measureInWindow(update);
+        }, 150);
       }
     };
   }
@@ -263,10 +283,6 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
             strokeWidth={1.5}
           />
         ))}
-
-        {/* World-bounds rectangle removed - it read as a "hard wall"
-            on the screen. The clamp in world.ts still keeps physics
-            in bounds, but the player no longer sees an edge. */}
 
         {w.salvageRings.map((r, i) => {
           if (!r.active) return null;
@@ -436,7 +452,7 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
           ref={dockRef}
           onLayout={buttonBounds('dock', dockRef)}
           style={styles.dockPrompt}
-          pointerEvents="none"
+          pointerEvents="box-none"
         >
           <Text style={styles.dockPromptLabel}>DOCK AT</Text>
           <Text style={styles.dockPromptName}>
@@ -460,7 +476,7 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
             ref={autoRef}
             onLayout={buttonBounds('auto', autoRef)}
             style={[styles.smallBtn, autoFire && styles.smallBtnOn]}
-            pointerEvents="none"
+            pointerEvents="box-none"
           >
             <Text style={styles.smallBtnText}>AUTO</Text>
           </View>
@@ -468,7 +484,7 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
             ref={weaponRef}
             onLayout={buttonBounds('weapon', weaponRef)}
             style={styles.smallBtn}
-            pointerEvents="none"
+            pointerEvents="box-none"
           >
             <Text style={styles.smallBtnText}>
               {w.run.weaponMode === 0
@@ -491,7 +507,7 @@ export function Game({ initialWorld, onDocked, onDied }: Props) {
         ref={pauseRef}
         onLayout={buttonBounds('pause', pauseRef)}
         style={styles.pauseBtn}
-        pointerEvents="none"
+        pointerEvents="box-none"
       >
         <Text style={styles.pauseText}>{paused ? 'RESUME' : 'PAUSE'}</Text>
       </View>
@@ -564,13 +580,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(3,16,28,0.7)',
     borderColor: COLORS.hudBorder,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: 999,
   },
   pauseText: {
     color: COLORS.text,
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: '800',
     letterSpacing: 2,
   },
