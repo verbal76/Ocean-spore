@@ -1,33 +1,17 @@
-import { useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 interface Props {
   size?: number;
   label?: string;
   pressed: boolean;
-  onBounds: (cx: number, cy: number, radius: number) => void;
 }
 
 // Pure visual fire button. Root touch dispatcher in Game.tsx owns
-// touch handling; this component just renders the styled circle and
-// reports its bounds. pointerEvents="none" so touches go to the root.
-export function FireButton({ size = 100, label = 'FIRE', pressed, onBounds }: Props) {
-  const ref = useRef<View>(null);
-
-  function measure() {
-    const node = ref.current as any;
-    if (node && typeof node.measureInWindow === 'function') {
-      node.measureInWindow((x: number, y: number, w: number, h: number) => {
-        onBounds(x + w / 2, y + h / 2, size / 2);
-      });
-    }
-  }
-
+// touch handling and derives bounds from static layout constants.
+export function FireButton({ size = 100, label = 'FIRE', pressed }: Props) {
   return (
     <View
-      ref={ref}
       pointerEvents="none"
-      onLayout={measure}
       style={[
         styles.btn,
         { width: size, height: size, borderRadius: size / 2 },

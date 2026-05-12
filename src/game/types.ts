@@ -94,7 +94,13 @@ export interface Particle {
   size: number;
 }
 
-export type GameScreen = 'title' | 'playing' | 'docked' | 'dead';
+export type GameScreen =
+  | 'splash'
+  | 'captain'
+  | 'shipyard'
+  | 'playing'
+  | 'docked'
+  | 'dead';
 
 export interface UpgradeState {
   hullLevel: number;

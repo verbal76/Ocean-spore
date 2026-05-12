@@ -10,6 +10,7 @@ export interface SaveData {
   totalKills: number;
   totalParts: number;
   lastShip: string;
+  captainName: string;
   schemaVersion: number;
 }
 
@@ -19,7 +20,8 @@ const DEFAULT_SAVE: SaveData = {
   totalKills: 0,
   totalParts: 0,
   lastShip: 'raft',
-  schemaVersion: 1,
+  captainName: '',
+  schemaVersion: 2,
 };
 
 function savePath(): string | null {
