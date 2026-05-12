@@ -7,7 +7,7 @@ import { SHIPS_BY_ID } from '../data/ships';
 import { World } from '../game/world';
 import { GLB_ASSETS } from './assets';
 import { loadModel } from './assetLoader';
-import { loadColormapTexture } from './colormap';
+import { loadColormapSampler, colormapDiagSample, ColormapSampler } from './colormap';
 import { glbLoadStatus } from './loadStatus';
 
 interface Props {
@@ -38,23 +38,12 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
   return renderer;
 }
 
-function forceBasicMaterials(
-  root: THREE.Object3D,
-  fallbackColor: number,
-  colormap: THREE.DataTexture | null
-) {
+function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number, useVertexColor: boolean) {
   root.traverse((obj: any) => {
     if (obj.isMesh) {
-      // If the manually-decoded colormap is available, use it as the
-      // .map and tint white so the texture shows through unchanged.
-      // The GLB's existing UVs sample the palette and give us the
-      // multi-colored Kenney look (taxi-style: orange body, dark
-      // top, etc). Without the colormap we fall back to the data-
-      // defined tint color so the ship is at least visible.
-      const useTexture = !!colormap;
       obj.material = new THREE.MeshBasicMaterial({
-        color: useTexture ? 0xffffff : new THREE.Color(fallbackColor),
-        map: useTexture ? colormap : null,
+        color: useVertexColor ? 0xffffff : new THREE.Color(fallbackColor),
+        vertexColors: useVertexColor,
         side: THREE.DoubleSide,
         transparent: false,
         depthWrite: true,
@@ -62,6 +51,59 @@ function forceBasicMaterials(
       });
       obj.visible = true;
       obj.frustumCulled = false;
+    }
+  });
+}
+
+function bakeVertexColors(obj: any, sampler: ColormapSampler): boolean {
+  const geo = obj.geometry as THREE.BufferGeometry | undefined;
+  if (!geo) return false;
+  const uvAttr = geo.attributes.uv;
+  if (!uvAttr) return false;
+  const count = uvAttr.count;
+  const colors = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    const u = uvAttr.getX(i);
+    const v = uvAttr.getY(i);
+    const [r, g, b] = sampler(u, v);
+    colors[i * 3] = r;
+    colors[i * 3 + 1] = g;
+    colors[i * 3 + 2] = b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return true;
+}
+
+function bakeGeometryTransforms(inner: THREE.Object3D, targetSize: number) {
+  inner.updateMatrixWorld(true);
+  inner.traverse((obj: any) => {
+    if (obj.isMesh && obj.geometry) {
+      obj.geometry = obj.geometry.clone();
+      obj.geometry.applyMatrix4(obj.matrixWorld);
+      obj.position.set(0, 0, 0);
+      obj.rotation.set(0, 0, 0);
+      obj.scale.set(1, 1, 1);
+      obj.matrix.identity();
+      obj.matrixWorldNeedsUpdate = true;
+    }
+  });
+
+  inner.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(inner);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const scale = maxDim > 0.001 ? targetSize / maxDim : 1;
+
+  const mat = new THREE.Matrix4()
+    .makeTranslation(-center.x * scale, -center.y * scale, -center.z * scale)
+    .multiply(new THREE.Matrix4().makeScale(scale, scale, scale));
+
+  inner.traverse((obj: any) => {
+    if (obj.isMesh && obj.geometry) {
+      obj.geometry.applyMatrix4(mat);
+      obj.geometry.computeBoundingBox();
+      obj.geometry.computeBoundingSphere();
     }
   });
 }
@@ -94,6 +136,7 @@ export function Render3D({ worldRef }: Props) {
     glbLoadStatus.drawBufW = gl && gl.drawingBufferWidth ? gl.drawingBufferWidth : 0;
     glbLoadStatus.drawBufH = gl && gl.drawingBufferHeight ? gl.drawingBufferHeight : 0;
     glbLoadStatus.sceneChildren = 0;
+    glbLoadStatus.colormapDiag = '';
 
     try {
       const renderer = makeRenderer(gl);
@@ -116,33 +159,23 @@ export function Render3D({ worldRef }: Props) {
       const templates: Record<string, THREE.Object3D> = {};
       const TEMPLATE_BASE_SIZE = 50;
 
-      // Load the shared Kenney palette texture in parallel with the
-      // GLBs. We manually decode the PNG bytes (Hermes has no Image
-      // constructor so three.js's TextureLoader can't do it).
-      const colormapPromise = loadColormapTexture();
+      const sampler = await loadColormapSampler();
+      glbLoadStatus.colormapDiag = await colormapDiagSample();
 
       await Promise.all(
         Object.entries(GLB_ASSETS).map(async ([name, mod]) => {
           try {
             const inner = await loadModel(mod);
-            const box = new THREE.Box3().setFromObject(inner);
-            const size = box.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
-            if (maxDim > 0.001) inner.scale.setScalar(TEMPLATE_BASE_SIZE / maxDim);
-            box.setFromObject(inner);
-            const center = box.getCenter(new THREE.Vector3());
-            inner.position.sub(center);
 
-            inner.traverse((obj: any) => {
-              if (obj.isMesh && obj.geometry) {
-                obj.geometry.computeBoundingBox();
-                obj.geometry.computeBoundingSphere();
-              }
-            });
+            bakeGeometryTransforms(inner, TEMPLATE_BASE_SIZE);
 
-            const wrapper = new THREE.Group();
-            wrapper.add(inner);
-            templates[name] = wrapper;
+            if (sampler) {
+              inner.traverse((obj: any) => {
+                if (obj.isMesh) bakeVertexColors(obj, sampler);
+              });
+            }
+
+            templates[name] = inner;
             glbLoadStatus.loaded += 1;
           } catch (err: any) {
             glbLoadStatus.failed += 1;
@@ -155,10 +188,7 @@ export function Render3D({ worldRef }: Props) {
         })
       );
 
-      // Wait for the colormap texture to be decoded. If it failed,
-      // null is returned and ships fall back to flat tint colors.
-      const colormap = await colormapPromise;
-
+      const haveColors = !!sampler;
       const active = new Map<string, THREE.Object3D>();
       const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
 
@@ -171,7 +201,7 @@ export function Render3D({ worldRef }: Props) {
           const tpl = templates[modelName];
           if (tpl) {
             mesh = tpl.clone(true);
-            forceBasicMaterials(mesh, tintColor, colormap);
+            forceBasicMaterials(mesh, tintColor, haveColors);
           } else {
             mesh = new THREE.Mesh(
               fallbackGeo,
@@ -185,8 +215,7 @@ export function Render3D({ worldRef }: Props) {
         }
         mesh.position.set(x, 0, y);
         mesh.rotation.y = -angle + Math.PI / 2;
-        const scale = worldSize / 15;
-        mesh.scale.setScalar(scale);
+        mesh.scale.setScalar(worldSize / TEMPLATE_BASE_SIZE);
       }
 
       function hexToInt(hex: string): number {

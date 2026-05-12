@@ -46,6 +46,7 @@ export function AboutOverlay({ onClose }: Props) {
   rows.push(['FRAMES', String(glbLoadStatus.renderFrames)]);
   rows.push(['DRAW BUF', `${glbLoadStatus.drawBufW}x${glbLoadStatus.drawBufH}`]);
   rows.push(['SCENE', String(glbLoadStatus.sceneChildren)]);
+  if (glbLoadStatus.colormapDiag !== '') rows.push(['COLORMAP', glbLoadStatus.colormapDiag]);
   if (glbLoadStatus.initError !== '') rows.push(['INIT ERR', glbLoadStatus.initError]);
   if (glbLoadStatus.renderError !== '') rows.push(['RENDER ERR', glbLoadStatus.renderError]);
   if (glbLoadStatus.renderStack !== '') rows.push(['STACK', glbLoadStatus.renderStack]);
@@ -99,24 +100,12 @@ export function AboutOverlay({ onClose }: Props) {
 }
 
 function Row({
-  label,
-  value,
-  maxLines,
-}: {
-  label: string;
-  value: string;
-  maxLines?: number;
-}) {
+  label, value, maxLines,
+}: { label: string; value: string; maxLines?: number }) {
   return (
     <View style={styles.row}>
       <Text style={styles.rowLabel}>{label}</Text>
-      <Text
-        style={styles.rowValue}
-        numberOfLines={maxLines ?? 2}
-        selectable
-      >
-        {value}
-      </Text>
+      <Text style={styles.rowValue} numberOfLines={maxLines ?? 2} selectable>{value}</Text>
     </View>
   );
 }
@@ -124,10 +113,7 @@ function Row({
 const styles = StyleSheet.create({
   scrim: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(3,16,28,0.92)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -152,10 +138,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
-  scroll: {
-    flexGrow: 0,
-    flexShrink: 1,
-  },
+  scroll: { flexGrow: 0, flexShrink: 1 },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -163,30 +146,10 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     gap: 12,
   },
-  rowLabel: {
-    color: COLORS.textDim,
-    fontSize: 11,
-    letterSpacing: 2,
-    fontWeight: '700',
-    minWidth: 80,
-  },
-  rowValue: {
-    color: COLORS.text,
-    fontSize: 12,
-    letterSpacing: 0.5,
-    flex: 1,
-    textAlign: 'right',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: COLORS.hudBorder,
-    marginVertical: 12,
-  },
-  btnRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 18,
-  },
+  rowLabel: { color: COLORS.textDim, fontSize: 11, letterSpacing: 2, fontWeight: '700', minWidth: 80 },
+  rowValue: { color: COLORS.text, fontSize: 12, letterSpacing: 0.5, flex: 1, textAlign: 'right' },
+  divider: { height: 1, backgroundColor: COLORS.hudBorder, marginVertical: 12 },
+  btnRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
   copyBtn: {
     flex: 1,
     backgroundColor: 'rgba(34,211,238,0.18)',
@@ -196,12 +159,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
   },
-  copyBtnText: {
-    color: COLORS.accent,
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
+  copyBtnText: { color: COLORS.accent, fontSize: 13, fontWeight: '900', letterSpacing: 2 },
   closeBtn: {
     flex: 1,
     backgroundColor: COLORS.accent,
@@ -209,10 +167,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
   },
-  closeBtnText: {
-    color: COLORS.bg,
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
+  closeBtnText: { color: COLORS.bg, fontSize: 13, fontWeight: '900', letterSpacing: 2 },
 });
