@@ -49,10 +49,11 @@ export function AboutOverlay({ onClose }: Props) {
 
         <Row label="3D MODELS" value={glbLine} />
         {glbLoadStatus.failed > 0 && (
-          <Row
-            label="FIRST ERR"
-            value={glbLoadStatus.firstError || '(none)'}
-          />
+          <Row label="FIRST ERR" value={glbLoadStatus.firstError || '(none)'} />
+        )}
+        <Row label="FRAMES" value={String(glbLoadStatus.renderFrames)} />
+        {glbLoadStatus.renderError !== '' && (
+          <Row label="RENDER ERR" value={glbLoadStatus.renderError} />
         )}
 
         <Pressable style={styles.closeBtn} onPress={onClose}>

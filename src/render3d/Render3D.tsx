@@ -41,12 +41,6 @@ function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
   root.traverse((obj: any) => {
     if (obj.isMesh) {
       const old = obj.material;
-      // Use the ship's data-defined color unconditionally. We used
-      // to clone the GLB's old.color when present - but Kenney boats
-      // ship with material colors that include black/very-dark hues
-      // for trim and undersides, and a black MeshBasicMaterial
-      // against the dark blue ocean (#062238) is effectively
-      // invisible. The tint guarantees visibility.
       const color = new THREE.Color(fallbackColor);
       const useVertexColors = !!(old && old.vertexColors);
       obj.material = new THREE.MeshBasicMaterial({
@@ -57,10 +51,6 @@ function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number) {
         depthWrite: true,
         depthTest: true,
       });
-      // Defensive: some GLBs ship nodes with visible=false that we
-      // don't want to honor, and some have degenerate bounding
-      // spheres that cause frustumCulled=true to drop the mesh even
-      // when it's in view.
       obj.visible = true;
       obj.frustumCulled = false;
     }
@@ -76,10 +66,6 @@ export function Render3D({ worldRef }: Props) {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // Reset so a later remount (e.g. docked -> playing) can
-      // reinitialize the scene. Without this, the gate at the top of
-      // onContextCreate would short-circuit and leave the second
-      // session with no render loop.
       startedRef.current = false;
     };
   }, []);
@@ -112,6 +98,8 @@ export function Render3D({ worldRef }: Props) {
     glbLoadStatus.loaded = 0;
     glbLoadStatus.failed = 0;
     glbLoadStatus.firstError = '';
+    glbLoadStatus.renderError = '';
+    glbLoadStatus.renderFrames = 0;
 
     await Promise.all(
       Object.entries(GLB_ASSETS).map(async ([name, mod]) => {
@@ -125,10 +113,6 @@ export function Render3D({ worldRef }: Props) {
           const center = box.getCenter(new THREE.Vector3());
           inner.position.sub(center);
 
-          // Force fresh per-geometry bounds after the runtime scale.
-          // Frustum culling reads geometry.boundingSphere; stale or
-          // degenerate spheres from the GLB authoring tool can cull
-          // meshes even though they're inside the view.
           inner.traverse((obj: any) => {
             if (obj.isMesh && obj.geometry) {
               obj.geometry.computeBoundingBox();
@@ -136,14 +120,6 @@ export function Render3D({ worldRef }: Props) {
             }
           });
 
-          // Wrap the centered inner in an outer Group so place() can
-          // set position/rotation/scale on the wrapper without
-          // overwriting the inner's centering offset. Previously
-          // clone.position.set(x,0,y) discarded the (-center) shift,
-          // leaving the geometry off-pivot by up to half the model's
-          // size - which on Kenney boats whose GLB pivots sit at one
-          // corner was enough to push the ship out of the ortho
-          // frustum entirely. The Group keeps centering pristine.
           const wrapper = new THREE.Group();
           wrapper.add(inner);
           templates[name] = wrapper;
@@ -159,12 +135,11 @@ export function Render3D({ worldRef }: Props) {
       })
     );
 
-    // Permanent debug marker at the world spawn point. Bright magenta
-    // cube, frustum-cull disabled, sits at the player's initial pos
-    // forever. If the user sees magenta but no ships, the GL pipeline
-    // is alive and the ship-specific path is the problem. If they
-    // see neither, GLView/renderer setup itself is failing silently
-    // (context create exit, render loop never starts, etc.).
+    // Permanent magenta debug marker at world spawn point. If user sees
+    // magenta but no ships, GL pipeline is alive and GLB-clone path is
+    // the problem. If they see neither AND FRAMES is incrementing, the
+    // renderer is dropping our adds silently. If FRAMES stays 0,
+    // render() never executes.
     const debugMarker = new THREE.Mesh(
       new THREE.BoxGeometry(60, 60, 60),
       new THREE.MeshBasicMaterial({ color: 0xff00ff })
@@ -191,6 +166,7 @@ export function Render3D({ worldRef }: Props) {
             fallbackGeo,
             new THREE.MeshBasicMaterial({ color: 0xff3030 })
           );
+          mesh.frustumCulled = false;
         }
         scene.add(mesh);
         active.set(key, mesh);
@@ -223,42 +199,49 @@ export function Render3D({ worldRef }: Props) {
         return;
       }
 
-      camera.position.x = w.camera.x;
-      camera.position.z = w.camera.y;
-      camera.lookAt(w.camera.x, 0, w.camera.y);
-      camera.up.set(0, 0, -1);
+      try {
+        camera.position.x = w.camera.x;
+        camera.position.z = w.camera.y;
+        camera.lookAt(w.camera.x, 0, w.camera.y);
+        camera.up.set(0, 0, -1);
 
-      const keep = new Set<string>();
+        const keep = new Set<string>();
 
-      const ps = SHIPS_BY_ID[w.player.classId];
-      if (ps) {
-        place('player', ps.model, w.player.pos.x, w.player.pos.y,
-          w.player.angle, w.player.size, hexToInt(ps.color));
-        keep.add('player');
+        const ps = SHIPS_BY_ID[w.player.classId];
+        if (ps) {
+          place('player', ps.model, w.player.pos.x, w.player.pos.y,
+            w.player.angle, w.player.size, hexToInt(ps.color));
+          keep.add('player');
+        }
+
+        for (let i = 0; i < w.enemies.length; i++) {
+          const e = w.enemies[i];
+          const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
+          if (!arch?.model) continue;
+          const key = 'e' + i;
+          place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
+          keep.add(key);
+        }
+
+        reap(keep);
+
+        if (typeof (renderer as any).resetState === 'function') {
+          (renderer as any).resetState();
+        }
+        renderer.render(scene, camera);
+        gl.endFrameEXP();
+        glbLoadStatus.renderFrames += 1;
+      } catch (err: any) {
+        // Capture the first render-loop crash so it surfaces in the
+        // About panel. Without this catch, a single throw on the
+        // first frame killed the entire rAF chain silently (empty
+        // 3D layer, no logcat).
+        if (!glbLoadStatus.renderError) {
+          const msg = err && err.message ? String(err.message) : String(err);
+          glbLoadStatus.renderError = msg.slice(0, 80);
+        }
+        console.warn('[Render3D] frame error', err);
       }
-
-      for (let i = 0; i < w.enemies.length; i++) {
-        const e = w.enemies[i];
-        const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
-        if (!arch?.model) continue;
-        const key = 'e' + i;
-        place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
-        keep.add(key);
-      }
-
-      reap(keep);
-
-      // expo-gl shares its GL context with the OS-level GLView
-      // surface, which mutates GL state (binds, viewport, clear color)
-      // between frames. three.js caches "what the GPU is set to" and
-      // skips redundant calls, so externally-changed state silently
-      // invalidates the renderer's snapshot and frames draw empty.
-      // resetState() forces a re-push of all state on the next render.
-      if (typeof (renderer as any).resetState === 'function') {
-        (renderer as any).resetState();
-      }
-      renderer.render(scene, camera);
-      gl.endFrameEXP();
       requestAnimationFrame(render);
     }
 
