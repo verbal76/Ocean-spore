@@ -101,27 +101,38 @@ export async function loadColormapSampler(): Promise<ColormapSampler | null> {
   if (!d) return null;
   const { rgba, width, height } = d;
   samplerCached = (u: number, v: number) => {
-    // Clamp UVs to [0, 1]. Three.js GLBs use the convention UV (0,0)
-    // = bottom-left, but Kenney's palette uses PNG row order
-    // (top-left origin). Flipping v gives us correct sampling.
+    // Sample without flipping v. Build #28's COLORMAP diagnostic
+    // showed '512x512 00 00 00 ff ...' - the top-left of the palette
+    // is black. We were flipping v (`1 - vc`) which mapped Kenney's
+    // low-UV samples to the BOTTOM of the image (row ~504), which
+    // is also black. Without the flip, low UVs map to the top
+    // (where Kenney puts the colored palette swatches).
     const uc = Math.max(0, Math.min(1, u));
     const vc = Math.max(0, Math.min(1, v));
     const px = Math.min(width - 1, Math.floor(uc * width));
-    const py = Math.min(height - 1, Math.floor((1 - vc) * height));
+    const py = Math.min(height - 1, Math.floor(vc * height));
     const idx = (py * width + px) * 4;
     return [rgba[idx] / 255, rgba[idx + 1] / 255, rgba[idx + 2] / 255];
   };
   return samplerCached;
 }
 
-// Diagnostic: returns the first N bytes of the decoded RGBA buffer as
-// a string, for surfacing in the About panel. If this shows all zeros
-// the decode failed even though we didn't throw.
+// Diagnostic: returns the first N bytes of the decoded RGBA buffer
+// (top-left of the palette) plus a sample at UV (0.014, 0.014) -
+// the typical low-UV that Kenney's boat GLBs use. If the sample is
+// non-black, the sampler is hitting real palette colors.
 export async function colormapDiagSample(): Promise<string> {
   const d = await decodeColormap();
   if (!d) return 'decode-failed';
-  const head = Array.from(d.rgba.slice(0, 16))
+  const { rgba, width, height } = d;
+  const head = Array.from(rgba.slice(0, 12))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join(' ');
-  return `${d.width}x${d.height} ${head}`;
+  // Sample at the typical low-UV used by Kenney boats. Same logic
+  // as the sampler (no v flip).
+  const px = Math.min(width - 1, Math.floor(0.014 * width));
+  const py = Math.min(height - 1, Math.floor(0.014 * height));
+  const idx = (py * width + px) * 4;
+  const sample = `${rgba[idx].toString(16).padStart(2, '0')} ${rgba[idx + 1].toString(16).padStart(2, '0')} ${rgba[idx + 2].toString(16).padStart(2, '0')}`;
+  return `${width}x${height} top:${head} uv(.014):${sample}`;
 }
