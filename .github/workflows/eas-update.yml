@@ -1,0 +1,90 @@
+name: EAS Update (OTA)
+
+on:
+  push:
+    branches:
+      - 'working-branch-ocean-spore'
+    paths-ignore:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'app.json'
+      - 'eas.json'
+      - 'metro.config.js'
+      - 'babel.config.js'
+      - 'tsconfig.json'
+      - '.github/**'
+      - '**/*.md'
+      - 'docs/**'
+      - 'scripts/**'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'EAS update channel/branch (preview | production)'
+        required: true
+        default: 'preview'
+      message:
+        description: 'Update message'
+        required: false
+        default: ''
+
+# This copy of eas-update.yml lives on the default branch (main) so
+# the Actions-UI "Run workflow" button appears. The identical file
+# also lives on working-branch-ocean-spore so push events on that
+# branch auto-trigger OTA publishes. GitHub uses the branch's local
+# copy for push triggers and the default-branch copy for dispatch.
+
+concurrency:
+  group: eas-update-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Publish OTA update
+    runs-on: ubuntu-latest
+    env:
+      EXPO_TOKEN: ${{ secrets.OCEAN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify EAS token secret present
+        env:
+          EXPO_TOKEN: ${{ secrets.OCEAN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::OCEAN repo secret is empty or missing."
+            echo "::error::Check it at: https://github.com/verbal76/Ocean-spore/settings/secrets/actions"
+            exit 1
+          fi
+          echo "OCEAN secret resolved (length: ${#EXPO_TOKEN} chars)."
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.OCEAN }}
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Generate build info
+        run: node scripts/write-build-info.mjs
+
+      - name: Prepare assets
+        run: npm run prepare-assets
+
+      - name: Publish update
+        env:
+          EXPO_TOKEN: ${{ secrets.OCEAN }}
+        run: |
+          BRANCH="${{ github.event.inputs.branch || 'preview' }}"
+          MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG="$(git log -1 --pretty=%B | head -n1)"
+          fi
+          eas update --non-interactive --branch "$BRANCH" --message "$MSG"
