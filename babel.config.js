@@ -38,6 +38,14 @@
 //                            in try/catch with renderError surfaced in
 //                            About panel; FRAMES heartbeat counter to
 //                            confirm the loop is actually running
+//   build #14 (2026-05-12) - aggressive diagnostics for 'GLBs load but
+//                            nothing visible': clear color set to
+//                            yellow (so we know if GLView is alive),
+//                            onContextCreate wrapped in try/catch with
+//                            initError surfaced, DRAW BUF dimensions
+//                            shown, SCENE child count shown. Once we
+//                            see whether GLView is rendering at all
+//                            we can target the real bug.
 module.exports = function (api) {
   api.cache(true);
   return {

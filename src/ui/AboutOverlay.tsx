@@ -52,6 +52,14 @@ export function AboutOverlay({ onClose }: Props) {
           <Row label="FIRST ERR" value={glbLoadStatus.firstError || '(none)'} />
         )}
         <Row label="FRAMES" value={String(glbLoadStatus.renderFrames)} />
+        <Row
+          label="DRAW BUF"
+          value={`${glbLoadStatus.drawBufW}x${glbLoadStatus.drawBufH}`}
+        />
+        <Row label="SCENE" value={String(glbLoadStatus.sceneChildren)} />
+        {glbLoadStatus.initError !== '' && (
+          <Row label="INIT ERR" value={glbLoadStatus.initError} />
+        )}
         {glbLoadStatus.renderError !== '' && (
           <Row label="RENDER ERR" value={glbLoadStatus.renderError} />
         )}
