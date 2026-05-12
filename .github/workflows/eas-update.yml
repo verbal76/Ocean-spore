@@ -41,6 +41,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Fail loud and early with a clear diagnosis if the EAS_TOKEN
+      # repo secret isn't set. Avoids the misleading 1m20s journey
+      # that ends in 'An Expo user account is required'.
+      - name: Verify EAS_TOKEN secret present
+        env:
+          EXPO_TOKEN: ${{ secrets.EAS_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EAS_TOKEN repo secret is empty or missing."
+            echo "::error::Add it at: https://github.com/verbal76/Ocean-spore/settings/secrets/actions"
+            echo "::error::Name must be exactly EAS_TOKEN (case-sensitive). Value: a token from the EAS dashboard."
+            exit 1
+          fi
+          echo "EAS_TOKEN secret resolved (length: ${#EXPO_TOKEN} chars)."
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
