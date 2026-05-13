@@ -376,12 +376,20 @@ function fireBullets(world: World) {
   // ~= 3.33 * size, so the bow sits ~1.67 * size in front of the center.
   // Use 1.6 to land just inside the bow tip rather than past it.
   const nose = p.size * 1.6;
+  // Inherit a fraction of ship velocity so bullets feel "carried" by
+  // the boat rather than fired into static air. 0.3 is a light touch -
+  // the bullet's nominal speed dominates, but a fast-moving boat adds
+  // a visible nudge to muzzle velocity.
+  const inherit = 0.3;
   for (const off of offsets) {
     const a = p.angle + off;
     world.bullets.push({
       id: world.bulletIdCounter++,
       pos: { x: p.pos.x + Math.cos(p.angle) * nose, y: p.pos.y + Math.sin(p.angle) * nose },
-      vel: { x: Math.cos(a) * speed, y: Math.sin(a) * speed },
+      vel: {
+        x: Math.cos(a) * speed + p.vel.x * inherit,
+        y: Math.sin(a) * speed + p.vel.y * inherit,
+      },
       life: 1.6,
       damage: p.damage * (p.weaponMode === 1 ? 0.85 : 1),
       owner: 'player',
@@ -407,19 +415,19 @@ function tryUnlockShips(world: World) {
 // and the existing trail stays put. Curves naturally because each
 // point is captured at the ship's current heading.
 //
-// Length math: rendered ship length = 50 * (size/15) ~= 3.33 * size.
-// 3x ship length total = ~10 * size world units. With spacing of
-// 0.85 * size between points, that's ~12 points to cover the full
-// trail before fade-out. We cap at 14 for a small safety margin.
+// Length math: rendered ship max-dim = 50 * (size/15) = 10/3 * size,
+// so the visible stern sits (10/3)/2 = 5/3 ~= 1.667 * size behind
+// the mesh center. With spacing 0.5 * size and 20 max points the
+// trail spans ~10 * size world units = ~3x ship length.
 function updateWake(ship: { pos: Vec2; angle: number; size: number; wake: WakePoint[] }) {
-  const sternBack = ship.size * 1.5;
+  const sternBack = ship.size * (5 / 3);
   const sx = ship.pos.x - Math.cos(ship.angle) * sternBack;
   const sy = ship.pos.y - Math.sin(ship.angle) * sternBack;
   const last = ship.wake[0];
-  const spacing = ship.size * 0.85;
+  const spacing = ship.size * 0.5;
   if (!last || Math.hypot(sx - last.x, sy - last.y) > spacing) {
     ship.wake.unshift({ x: sx, y: sy });
-    if (ship.wake.length > 14) ship.wake.length = 14;
+    if (ship.wake.length > 20) ship.wake.length = 20;
   }
 }
 
@@ -475,10 +483,34 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     const wantAngle = Math.atan2(input.dy, input.dx);
     const diff = angleDiff(p.angle, wantAngle);
     const maxTurn = p.turn * dt;
-    p.angle += Math.sign(diff) * Math.min(Math.abs(diff), maxTurn);
+    const turnApplied = Math.sign(diff) * Math.min(Math.abs(diff), maxTurn);
+    p.angle += turnApplied;
+
+    // Decompose world-space velocity into forward (along heading) and
+    // lateral (perpendicular, starboard-positive) components.
+    // Forward converges fast to throttle (snappy acceleration). Lateral
+    // decays slowly (drift / lateral slip). During hard turns the
+    // lateral decay is boosted to simulate stern drag. The result is
+    // the "arcade speedboat that carves through water" feel - heading
+    // changes don't instantly reorient momentum.
+    const fX = Math.cos(p.angle);
+    const fY = Math.sin(p.angle);
+    let vFwd = p.vel.x * fX + p.vel.y * fY;
+    let vLat = p.vel.x * fY - p.vel.y * fX;
+
     const targetSpeed = inputMag * p.speed * weatherSpeed;
-    p.vel.x = lerp(p.vel.x, Math.cos(p.angle) * targetSpeed, 1 - Math.exp(-3 * dt));
-    p.vel.y = lerp(p.vel.y, Math.sin(p.angle) * targetSpeed, 1 - Math.exp(-3 * dt));
+    vFwd = lerp(vFwd, targetSpeed, 1 - Math.exp(-4 * dt));
+
+    // Stern drag: lateral decay rate grows with how hard the boat is
+    // turning right now. At standstill k=1.2 (gentle drift). At max
+    // turn rate k=2.7 (sharper grip, less slop).
+    const turnRate = Math.abs(turnApplied) / Math.max(dt, 0.0001);
+    const turningFactor = Math.min(1, turnRate / Math.max(p.turn, 0.0001));
+    const latK = 1.2 + 1.5 * turningFactor;
+    vLat = lerp(vLat, 0, 1 - Math.exp(-latK * dt));
+
+    p.vel.x = vFwd * fX + vLat * fY;
+    p.vel.y = vFwd * fY - vLat * fX;
   } else {
     p.vel.x *= Math.max(0, 1 - 0.6 * dt);
     p.vel.y *= Math.max(0, 1 - 0.6 * dt);
@@ -591,10 +623,14 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
           const spread = e.isBoss ? (s - 1) * 0.18 : 0;
           const ang = Math.atan2(dy, dx) + spread;
           const nose = e.size * 1.6;
+          const inherit = 0.3;
           world.bullets.push({
             id: world.bulletIdCounter++,
             pos: { x: e.pos.x + Math.cos(ang) * nose, y: e.pos.y + Math.sin(ang) * nose },
-            vel: { x: Math.cos(ang) * bspd, y: Math.sin(ang) * bspd },
+            vel: {
+              x: Math.cos(ang) * bspd + e.vel.x * inherit,
+              y: Math.sin(ang) * bspd + e.vel.y * inherit,
+            },
             life: 2.5,
             damage: e.damage * 0.6,
             owner: 'enemy',
