@@ -20,6 +20,7 @@ export interface ShipClass {
 export interface WakePoint {
   x: number;
   y: number;
+  angle: number;
 }
 
 export interface PlayerShip {

@@ -256,9 +256,6 @@ function dropPartsPickup(world: World, pos: Vec2, amount: number) {
 function spawnEnemyAtEdge(world: World) {
   const cam = world.camera;
   const r = 620;
-  // Reroll the spawn angle up to 4 times if it lands inside an
-  // existing enemy's personal-space bubble. Prevents stacking that
-  // looks like one ship spawning on top of another.
   const minDist = 120;
   let pos: Vec2 = { x: 0, y: 0 };
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -290,9 +287,6 @@ function spawnEnemyAtEdge(world: World) {
   if (k > 150) pool.push(ENEMIES[2]);
   const arch = pool[Math.floor(Math.random() * pool.length)];
 
-  // After 25 kills, ~15% of enemies are promoted to elite tier: same
-  // model and archetype, scaled up. Reads as a mini-boss without
-  // needing new art or new data rows.
   const isElite = k > 25 && Math.random() < 0.15;
   const hullMul = isElite ? 4 : 1;
   const dmgMul = isElite ? 1.4 : 1;
@@ -366,34 +360,48 @@ function dropCrate(world: World) {
 function fireBullets(world: World) {
   const p = world.player;
   const speed = 560;
-  const offsets =
+  // Side offsets in LOCAL ship space (positive = starboard). Scaled
+  // by ship size so a fortress's twin cannons sit wider than a
+  // skiff's. SPREAD also adds a small angular fan; TWIN fires
+  // parallel like a real broadside.
+  const muzzles: { side: number; angle: number }[] =
     p.weaponMode === 1
-      ? [-0.2, 0, 0.2]
+      ? [
+          { side: -p.size * 0.7, angle: -0.15 },
+          { side: 0, angle: 0 },
+          { side: p.size * 0.7, angle: 0.15 },
+        ]
       : p.weaponMode === 2
-      ? [-0.06, 0.06]
-      : [0];
-  // Spawn at the ship's bow tip. Rendered mesh max-dim = 50 * (size/15)
-  // ~= 3.33 * size, so the bow sits ~1.67 * size in front of the center.
-  // Use 1.6 to land just inside the bow tip rather than past it.
-  const nose = p.size * 1.6;
-  const inherit = 0.3;
-  // Recoil: every shot kicks the boat back along its forward axis.
-  // 10 world units per bullet. At fireRate 5.5 that's 55 u/s opposing
-  // thrust - visible during sustained fire from a fast boat, doesn't
-  // prevent forward motion.
-  const recoil = 10;
+      ? [
+          { side: -p.size * 0.6, angle: 0 },
+          { side: p.size * 0.6, angle: 0 },
+        ]
+      : [{ side: 0, angle: 0 }];
+  // Forward (along bow) and right (starboard) unit vectors.
+  // Right vector = forward rotated +90 deg (-sin, cos in our convention).
   const fX = Math.cos(p.angle);
   const fY = Math.sin(p.angle);
-  p.vel.x -= fX * recoil * offsets.length;
-  p.vel.y -= fY * recoil * offsets.length;
-  for (const off of offsets) {
-    const a = p.angle + off;
+  const rightX = -fY;
+  const rightY = fX;
+  // Spawn at the ship's bow tip plus a per-cannon side offset.
+  const nose = p.size * 1.6;
+  const inherit = 0.3;
+  // CAPTURE current ship velocity BEFORE applying recoil so all
+  // bullets in this volley inherit the same pre-recoil momentum.
+  // Otherwise the first bullet got pre-recoil velocity and later
+  // bullets got the slowed value - made firing feel mushy.
+  const pvxBefore = p.vel.x;
+  const pvyBefore = p.vel.y;
+  for (const m of muzzles) {
+    const spawnX = p.pos.x + fX * nose + rightX * m.side;
+    const spawnY = p.pos.y + fY * nose + rightY * m.side;
+    const a = p.angle + m.angle;
     world.bullets.push({
       id: world.bulletIdCounter++,
-      pos: { x: p.pos.x + fX * nose, y: p.pos.y + fY * nose },
+      pos: { x: spawnX, y: spawnY },
       vel: {
-        x: Math.cos(a) * speed + p.vel.x * inherit,
-        y: Math.sin(a) * speed + p.vel.y * inherit,
+        x: Math.cos(a) * speed + pvxBefore * inherit,
+        y: Math.sin(a) * speed + pvyBefore * inherit,
       },
       life: 1.6,
       damage: p.damage * (p.weaponMode === 1 ? 0.85 : 1),
@@ -401,11 +409,14 @@ function fireBullets(world: World) {
       color: '#fde047',
       size: 4,
     });
+    // Muzzle flash at THIS cannon, not just the centerline.
+    spawnParticles(world, { x: spawnX, y: spawnY }, '#fef3c7', 3, 60);
   }
-  // Muzzle flash particles at the bow.
-  const muzzleX = p.pos.x + fX * nose;
-  const muzzleY = p.pos.y + fY * nose;
-  spawnParticles(world, { x: muzzleX, y: muzzleY }, '#fef3c7', 3, 60);
+  // Recoil applies AFTER all bullets are spawned. 10 units per
+  // barrel along the ship's forward axis.
+  const recoil = 10;
+  p.vel.x -= fX * recoil * muzzles.length;
+  p.vel.y -= fY * recoil * muzzles.length;
 }
 
 function tryUnlockShips(world: World) {
@@ -418,25 +429,17 @@ function tryUnlockShips(world: World) {
   }
 }
 
-// Push a fresh wake point at the ship's stern when the ship has
-// moved far enough from the last point. The trail accumulates as
-// the ship moves; if the ship sits still, no new points are added
-// and the existing trail stays put. Curves naturally because each
-// point is captured at the ship's current heading.
-//
-// Length math: rendered ship max-dim = 50 * (size/15) = 10/3 * size,
-// so the visible stern sits (10/3)/2 = 5/3 ~= 1.667 * size behind
-// the mesh center. With spacing 0.5 * size and 20 max points the
-// trail spans ~10 * size world units = ~3x ship length.
 function updateWake(ship: { pos: Vec2; angle: number; size: number; wake: WakePoint[] }) {
   const sternBack = ship.size * (5 / 3);
   const sx = ship.pos.x - Math.cos(ship.angle) * sternBack;
   const sy = ship.pos.y - Math.sin(ship.angle) * sternBack;
   const last = ship.wake[0];
   const spacing = ship.size * 0.5;
-  if (!last || Math.hypot(sx - last.x, sy - last.y) > spacing) {
-    ship.wake.unshift({ x: sx, y: sy });
-    if (ship.wake.length > 20) ship.wake.length = 20;
+  const movedEnough = !last || Math.hypot(sx - last.x, sy - last.y) > spacing;
+  const turnedEnough = !last || Math.abs(angleDiff(last.angle, ship.angle)) > 0.08;
+  if (movedEnough || turnedEnough) {
+    ship.wake.unshift({ x: sx, y: sy, angle: ship.angle });
+    if (ship.wake.length > 24) ship.wake.length = 24;
   }
 }
 
@@ -487,37 +490,29 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   }
   const weatherSpeed = run.weather === 'storm' ? 0.78 : 1;
 
-  const inputMag = Math.hypot(input.dx, input.dy);
-  if (inputMag > 0.08) {
-    const wantAngle = Math.atan2(input.dy, input.dx);
-    const diff = angleDiff(p.angle, wantAngle);
+  // Rudder steering. Joystick Y = throttle (push UP = forward).
+  // Joystick X = rudder. Ship turns through rudder force, not by
+  // snapping toward target heading. Naval feel.
+  const throttleIn = -input.dy;
+  const rudderIn = input.dx;
+  const throttleActive = Math.abs(throttleIn) > 0.08;
+  const rudderActive = Math.abs(rudderIn) > 0.05;
 
-    // Speed-dependent turning: boats need water flow over the rudder
-    // to turn. At rest, max turn is 30% of base; at full speed, 100%.
-    // This kills the "pivots-in-place" hovercraft feel.
+  if (throttleActive || rudderActive) {
     const curSpeed = Math.hypot(p.vel.x, p.vel.y);
     const speedFrac = Math.min(1, curSpeed / Math.max(p.speed, 1));
-    const effectiveTurn = p.turn * (0.3 + 0.7 * speedFrac);
-    const maxTurn = effectiveTurn * dt;
-    const turnApplied = Math.sign(diff) * Math.min(Math.abs(diff), maxTurn);
+    const effectiveTurn = p.turn * (0.25 + 0.75 * speedFrac);
+    const turnApplied = rudderIn * effectiveTurn * dt;
     p.angle += turnApplied;
 
-    // Decompose world-space velocity into forward (along heading) and
-    // lateral (perpendicular, starboard-positive) components.
     const fX = Math.cos(p.angle);
     const fY = Math.sin(p.angle);
     let vFwd = p.vel.x * fX + p.vel.y * fY;
     let vLat = p.vel.x * fY - p.vel.y * fX;
 
-    // Forward: weighty acceleration. k=2.5 means ~91% to target in
-    // 1 second - feels like mass, not jet propulsion.
-    const targetSpeed = inputMag * p.speed * weatherSpeed;
+    const targetSpeed = throttleIn * p.speed * weatherSpeed;
     vFwd = lerp(vFwd, targetSpeed, 1 - Math.exp(-2.5 * dt));
 
-    // Lateral grip: HIGH baseline (k=4 -> hull doesn't slide sideways
-    // when going straight, which was the hovercraft complaint). LOW
-    // during hard turns (k=1.5 -> stern slides out, carving feel).
-    // turningFactor is 0 when going straight, 1 at max rudder.
     const turnRate = Math.abs(turnApplied) / Math.max(dt, 0.0001);
     const turningFactor = Math.min(1, turnRate / Math.max(effectiveTurn, 0.0001));
     const latK = 4.0 - 2.5 * turningFactor;
@@ -526,8 +521,6 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     p.vel.x = vFwd * fX + vLat * fY;
     p.vel.y = vFwd * fY - vLat * fX;
   } else {
-    // Coasting: heavy mass keeps gliding. k=0.3 -> ~26% loss per
-    // second. Boats don't stop on a dime.
     p.vel.x *= Math.max(0, 1 - 0.3 * dt);
     p.vel.y *= Math.max(0, 1 - 0.3 * dt);
   }
@@ -539,15 +532,11 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     p.hull = clamp(p.hull + run.upgrades.regenLevel * 1.2 * dt, 0, p.maxHull);
   }
 
-  world.camera.x = lerp(world.camera.x, p.pos.x, 1 - Math.exp(-4 * dt));
-  world.camera.y = lerp(world.camera.y, p.pos.y, 1 - Math.exp(-4 * dt));
-  world.shake = Math.max(0, world.shake - dt * 10);
+  // Camera with velocity lookahead. 0.18s lead sells velocity.
+  world.camera.x = lerp(world.camera.x, p.pos.x + p.vel.x * 0.18, 1 - Math.exp(-4 * dt));
+  world.camera.y = lerp(world.camera.y, p.pos.y + p.vel.y * 0.18, 1 - Math.exp(-4 * dt));
+  world.shake = Math.max(0, world.shake - dt * 14);
 
-  // Pull the camera back when a large enemy is on screen so the
-  // player feels small next to it. Linear scale: size 30 -> 1.0,
-  // size 60 (boss) -> 0.55. Computed from the largest enemy within
-  // ~1.4x screen-half-extent of the camera, so off-screen spawns
-  // don't pre-emptively zoom.
   let maxNearbySize = 0;
   const zoomReach = 700;
   for (const e of world.enemies) {
@@ -556,16 +545,12 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     }
   }
   const targetZoom = (() => {
-    // Boss-zoom: pull back when a large enemy is nearby.
     const bossZoom = maxNearbySize > 30
       ? Math.max(0.55, 1 - (maxNearbySize - 30) * 0.015)
       : 1;
-    // Speed-zoom: subtle pullback when moving fast sells the velocity
-    // even when raw speed numbers aren't changing.
     const pSpeed = Math.hypot(p.vel.x, p.vel.y);
     const speedFracCam = Math.min(1, pSpeed / Math.max(p.speed, 1));
     const speedZoom = 1 - 0.15 * speedFracCam;
-    // Take the more-zoomed-out of the two.
     return Math.min(bossZoom, speedZoom);
   })();
   world.cameraZoom = lerp(world.cameraZoom, targetZoom, 1 - Math.exp(-1.5 * dt));
@@ -591,13 +576,11 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
         const e = world.enemies[j];
         if (Math.hypot(b.pos.x - e.pos.x, b.pos.y - e.pos.y) < e.size + b.size) {
           e.hull -= b.damage;
-          // Hit feedback: brighter spark, small shake on every connect.
           spawnParticles(world, b.pos, '#fcd34d', 6, 90);
           spawnParticles(world, b.pos, '#fef3c7', 2, 40);
           world.shake = Math.max(world.shake, 1.5);
           world.bullets.splice(i, 1);
           if (e.hull <= 0) {
-            // Death: bigger debris field and bigger shake.
             spawnParticles(world, e.pos, e.color, e.isBoss ? 60 : 24, 220);
             spawnParticles(world, e.pos, '#fbbf24', e.isBoss ? 36 : 12, 270);
             spawnParticles(world, e.pos, '#ffffff', e.isBoss ? 20 : 8, 180);
@@ -622,7 +605,6 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     } else {
       if (Math.hypot(b.pos.x - p.pos.x, b.pos.y - p.pos.y) < p.size + b.size) {
         p.hull -= b.damage;
-        // Player hit feedback: red spark, white flash, sharper shake.
         spawnParticles(world, b.pos, '#fca5a5', 8, 130);
         spawnParticles(world, b.pos, '#ffffff', 3, 60);
         world.bullets.splice(i, 1);
@@ -634,9 +616,6 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   for (let j = world.enemies.length - 1; j >= 0; j--) {
     const e = world.enemies[j];
 
-    // Predictive lead: aim where the player will be in ~0.3s based
-    // on the player's current velocity. Ends the constant zig-zag
-    // chase by giving the AI a smoother target.
     const leadTime = 0.3;
     const fx = p.pos.x + p.vel.x * leadTime;
     const fy = p.pos.y + p.vel.y * leadTime;
@@ -644,9 +623,6 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     const dy = fy - e.pos.y;
     const dst = Math.hypot(dx, dy) || 1;
 
-    // Capped turn toward lead position (instead of snapping every
-    // frame). Per-archetype default - boss is slowest, elites turn
-    // slower than baseline due to mass.
     const wantAngle = Math.atan2(dy, dx);
     const aDiff = angleDiff(e.angle, wantAngle);
     const archTurn = e.isBoss ? 1.4 : (e.tier === 'elite' ? 2.0 : 2.8);
@@ -659,8 +635,6 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     const intent = movementIntent(e.archetype, dst, e.isBoss);
     const targetSpeedE = e.speed * weatherSpeed * intent;
 
-    // Same forward/lateral decomposition as the player. Grip is high
-    // for AI so they don't slide chaotically.
     const fXe = Math.cos(e.angle);
     const fYe = Math.sin(e.angle);
     let eVFwd = e.vel.x * fXe + e.vel.y * fYe;
