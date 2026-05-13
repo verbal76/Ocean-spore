@@ -34,6 +34,15 @@ interface Bounds { cx: number; cy: number; radius?: number; w?: number; h?: numb
 
 const TAP_KINDS = new Set<TouchKind>(['pause', 'auto', 'weapon', 'dock']);
 
+// Border color used to show which weapon mode is active. Mirrors
+// AUTO's smallBtnOn cyan styling so the player can tell at a
+// glance which of SINGLE/SPREAD/TWIN is selected.
+function weaponModeColor(mode: number): string {
+  if (mode === 1) return '#fbbf24'; // SPREAD: gold
+  if (mode === 2) return '#f97316'; // TWIN: orange
+  return '#22d3ee';                  // SINGLE: cyan
+}
+
 const JOY_BOTTOM = 28;
 const JOY_LEFT = 22;
 const JOY_SIZE = 130;
@@ -118,10 +127,6 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   }, []);
 
   function classify(x: number, y: number): TouchKind | null {
-    // Hitbox padding bumped (was +16/+20) - mobile thumbs need more
-    // tolerance, especially in combat. Combined with locationX/Y
-    // touch coords (below), the "press above the button" complaint
-    // goes away.
     const joy = bounds.joystick;
     if (joy.radius !== undefined && Math.hypot(x - joy.cx, y - joy.cy) <= joy.radius + 36) return 'joystick';
     const fire = bounds.fire;
@@ -200,13 +205,6 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
     }
   }
 
-  // NOTE on coordinates: we use locationX/locationY (relative to the
-  // root View) rather than pageX/pageY. On Android, pageY can be
-  // shifted by status-bar / nav-bar / safe-area offsets relative to
-  // where the buttons are visually anchored, causing a ~30-50px
-  // vertical hitbox mismatch. The root View is flex:1 and covers the
-  // touchable area, so its local coordinate system matches the
-  // visual layout math.
   function shouldSetResponder(e: GestureResponderEvent) {
     if (pausedRef.current) return false;
     return classify(e.nativeEvent.locationX, e.nativeEvent.locationY) !== null;
@@ -437,26 +435,49 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         </View>
       )}
 
-      <View style={styles.controlsLeft} pointerEvents="none">
+      {/* controlsLeft = "box-none" so empty container space stays
+          transparent to touches but the Joystick keeps its custom
+          drag tracking via the root responder. The joystick visual
+          itself is still passive; processTouches handles its math. */}
+      <View style={styles.controlsLeft} pointerEvents="box-none">
         <Joystick knob={knobOffset} />
       </View>
 
-      <View style={styles.controlsRight} pointerEvents="none">
+      {/* controlsRight = "box-none" so the container itself doesn't
+          eat touches, but the Pressable children DO receive them.
+          Each button calls the existing triggerAction or setFire. */}
+      <View style={styles.controlsRight} pointerEvents="box-none">
         <View style={styles.smallBtnRow}>
-          <View style={[styles.smallBtn, autoFire && styles.smallBtnOn]}>
+          <Pressable
+            style={[styles.smallBtn, autoFire && styles.smallBtnOn]}
+            onPress={() => triggerAction('auto')}
+            hitSlop={12}
+          >
             <Text style={styles.smallBtnText}>AUTO</Text>
-          </View>
-          <View style={styles.smallBtn}>
+          </Pressable>
+          <Pressable
+            style={[styles.smallBtn, { borderColor: weaponModeColor(w.run.weaponMode) }]}
+            onPress={() => triggerAction('weapon')}
+            hitSlop={12}
+          >
             <Text style={styles.smallBtnText}>
               {w.run.weaponMode === 0 ? 'SINGLE' : w.run.weaponMode === 1 ? 'SPREAD' : 'TWIN'}
             </Text>
-          </View>
+          </Pressable>
         </View>
-        <FireButton pressed={firePressed} />
+        <Pressable
+          onPressIn={() => setFire(true)}
+          onPressOut={() => setFire(false)}
+          hitSlop={16}
+        >
+          <FireButton pressed={firePressed} />
+        </Pressable>
       </View>
 
-      <View style={styles.pauseBtn} pointerEvents="none">
-        <Text style={styles.pauseText}>{paused ? 'RESUME' : 'PAUSE'}</Text>
+      <View style={styles.pauseBtn} pointerEvents="box-none">
+        <Pressable onPress={() => triggerAction('pause')} hitSlop={12}>
+          <Text style={styles.pauseText}>{paused ? 'RESUME' : 'PAUSE'}</Text>
+        </Pressable>
       </View>
 
       {paused && w.dockedHarborIndex < 0 && (
