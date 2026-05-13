@@ -51,7 +51,7 @@ const SMALLBTN_GAP = 8;
 const SMALL_FIRE_GAP = 10;
 const PAUSE_TOP = 180;
 const PAUSE_RIGHT = 12;
-const PAUSE_W = 90;
+const PAUSE_W = 110;
 const PAUSE_H = 38;
 
 export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
@@ -536,7 +536,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(3,16,28,0.7)',
     borderColor: COLORS.hudBorder,
     borderWidth: 1,
-    paddingHorizontal: 18,
+    paddingHorizontal: 12,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
