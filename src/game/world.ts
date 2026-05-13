@@ -376,16 +376,21 @@ function fireBullets(world: World) {
   // ~= 3.33 * size, so the bow sits ~1.67 * size in front of the center.
   // Use 1.6 to land just inside the bow tip rather than past it.
   const nose = p.size * 1.6;
-  // Inherit a fraction of ship velocity so bullets feel "carried" by
-  // the boat rather than fired into static air. 0.3 is a light touch -
-  // the bullet's nominal speed dominates, but a fast-moving boat adds
-  // a visible nudge to muzzle velocity.
   const inherit = 0.3;
+  // Recoil: every shot kicks the boat back along its forward axis.
+  // 10 world units per bullet. At fireRate 5.5 that's 55 u/s opposing
+  // thrust - visible during sustained fire from a fast boat, doesn't
+  // prevent forward motion.
+  const recoil = 10;
+  const fX = Math.cos(p.angle);
+  const fY = Math.sin(p.angle);
+  p.vel.x -= fX * recoil * offsets.length;
+  p.vel.y -= fY * recoil * offsets.length;
   for (const off of offsets) {
     const a = p.angle + off;
     world.bullets.push({
       id: world.bulletIdCounter++,
-      pos: { x: p.pos.x + Math.cos(p.angle) * nose, y: p.pos.y + Math.sin(p.angle) * nose },
+      pos: { x: p.pos.x + fX * nose, y: p.pos.y + fY * nose },
       vel: {
         x: Math.cos(a) * speed + p.vel.x * inherit,
         y: Math.sin(a) * speed + p.vel.y * inherit,
@@ -397,6 +402,10 @@ function fireBullets(world: World) {
       size: 4,
     });
   }
+  // Muzzle flash particles at the bow.
+  const muzzleX = p.pos.x + fX * nose;
+  const muzzleY = p.pos.y + fY * nose;
+  spawnParticles(world, { x: muzzleX, y: muzzleY }, '#fef3c7', 3, 60);
 }
 
 function tryUnlockShips(world: World) {
@@ -482,38 +491,45 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   if (inputMag > 0.08) {
     const wantAngle = Math.atan2(input.dy, input.dx);
     const diff = angleDiff(p.angle, wantAngle);
-    const maxTurn = p.turn * dt;
+
+    // Speed-dependent turning: boats need water flow over the rudder
+    // to turn. At rest, max turn is 30% of base; at full speed, 100%.
+    // This kills the "pivots-in-place" hovercraft feel.
+    const curSpeed = Math.hypot(p.vel.x, p.vel.y);
+    const speedFrac = Math.min(1, curSpeed / Math.max(p.speed, 1));
+    const effectiveTurn = p.turn * (0.3 + 0.7 * speedFrac);
+    const maxTurn = effectiveTurn * dt;
     const turnApplied = Math.sign(diff) * Math.min(Math.abs(diff), maxTurn);
     p.angle += turnApplied;
 
     // Decompose world-space velocity into forward (along heading) and
     // lateral (perpendicular, starboard-positive) components.
-    // Forward converges fast to throttle (snappy acceleration). Lateral
-    // decays slowly (drift / lateral slip). During hard turns the
-    // lateral decay is boosted to simulate stern drag. The result is
-    // the "arcade speedboat that carves through water" feel - heading
-    // changes don't instantly reorient momentum.
     const fX = Math.cos(p.angle);
     const fY = Math.sin(p.angle);
     let vFwd = p.vel.x * fX + p.vel.y * fY;
     let vLat = p.vel.x * fY - p.vel.y * fX;
 
+    // Forward: weighty acceleration. k=2.5 means ~91% to target in
+    // 1 second - feels like mass, not jet propulsion.
     const targetSpeed = inputMag * p.speed * weatherSpeed;
-    vFwd = lerp(vFwd, targetSpeed, 1 - Math.exp(-4 * dt));
+    vFwd = lerp(vFwd, targetSpeed, 1 - Math.exp(-2.5 * dt));
 
-    // Stern drag: lateral decay rate grows with how hard the boat is
-    // turning right now. At standstill k=1.2 (gentle drift). At max
-    // turn rate k=2.7 (sharper grip, less slop).
+    // Lateral grip: HIGH baseline (k=4 -> hull doesn't slide sideways
+    // when going straight, which was the hovercraft complaint). LOW
+    // during hard turns (k=1.5 -> stern slides out, carving feel).
+    // turningFactor is 0 when going straight, 1 at max rudder.
     const turnRate = Math.abs(turnApplied) / Math.max(dt, 0.0001);
-    const turningFactor = Math.min(1, turnRate / Math.max(p.turn, 0.0001));
-    const latK = 1.2 + 1.5 * turningFactor;
+    const turningFactor = Math.min(1, turnRate / Math.max(effectiveTurn, 0.0001));
+    const latK = 4.0 - 2.5 * turningFactor;
     vLat = lerp(vLat, 0, 1 - Math.exp(-latK * dt));
 
     p.vel.x = vFwd * fX + vLat * fY;
     p.vel.y = vFwd * fY - vLat * fX;
   } else {
-    p.vel.x *= Math.max(0, 1 - 0.6 * dt);
-    p.vel.y *= Math.max(0, 1 - 0.6 * dt);
+    // Coasting: heavy mass keeps gliding. k=0.3 -> ~26% loss per
+    // second. Boats don't stop on a dime.
+    p.vel.x *= Math.max(0, 1 - 0.3 * dt);
+    p.vel.y *= Math.max(0, 1 - 0.3 * dt);
   }
   p.pos.x = clamp(p.pos.x + p.vel.x * dt, 20, WORLD_WIDTH - 20);
   p.pos.y = clamp(p.pos.y + p.vel.y * dt, 20, WORLD_HEIGHT - 20);
@@ -539,9 +555,19 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
       if (e.size > maxNearbySize) maxNearbySize = e.size;
     }
   }
-  const targetZoom = maxNearbySize > 30
-    ? Math.max(0.55, 1 - (maxNearbySize - 30) * 0.015)
-    : 1;
+  const targetZoom = (() => {
+    // Boss-zoom: pull back when a large enemy is nearby.
+    const bossZoom = maxNearbySize > 30
+      ? Math.max(0.55, 1 - (maxNearbySize - 30) * 0.015)
+      : 1;
+    // Speed-zoom: subtle pullback when moving fast sells the velocity
+    // even when raw speed numbers aren't changing.
+    const pSpeed = Math.hypot(p.vel.x, p.vel.y);
+    const speedFracCam = Math.min(1, pSpeed / Math.max(p.speed, 1));
+    const speedZoom = 1 - 0.15 * speedFracCam;
+    // Take the more-zoomed-out of the two.
+    return Math.min(bossZoom, speedZoom);
+  })();
   world.cameraZoom = lerp(world.cameraZoom, targetZoom, 1 - Math.exp(-1.5 * dt));
 
   p.fireCooldown -= dt;
@@ -565,11 +591,16 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
         const e = world.enemies[j];
         if (Math.hypot(b.pos.x - e.pos.x, b.pos.y - e.pos.y) < e.size + b.size) {
           e.hull -= b.damage;
-          spawnParticles(world, b.pos, '#fcd34d', 4, 70);
+          // Hit feedback: brighter spark, small shake on every connect.
+          spawnParticles(world, b.pos, '#fcd34d', 6, 90);
+          spawnParticles(world, b.pos, '#fef3c7', 2, 40);
+          world.shake = Math.max(world.shake, 1.5);
           world.bullets.splice(i, 1);
           if (e.hull <= 0) {
-            spawnParticles(world, e.pos, e.color, e.isBoss ? 40 : 16, 200);
-            spawnParticles(world, e.pos, '#fbbf24', e.isBoss ? 24 : 8, 250);
+            // Death: bigger debris field and bigger shake.
+            spawnParticles(world, e.pos, e.color, e.isBoss ? 60 : 24, 220);
+            spawnParticles(world, e.pos, '#fbbf24', e.isBoss ? 36 : 12, 270);
+            spawnParticles(world, e.pos, '#ffffff', e.isBoss ? 20 : 8, 180);
             const drops = e.isBoss ? 8 : 1;
             for (let d = 0; d < drops; d++) {
               dropPartsPickup(world, e.pos, e.isBoss ? Math.floor(e.partsDrop / drops) : e.partsDrop);
@@ -577,7 +608,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
             run.kills += 1;
             run.score += e.isBoss ? 5000 : 100;
             run.momentum = Math.min(100, run.momentum + (e.isBoss ? 40 : 8));
-            world.shake = Math.max(world.shake, e.isBoss ? 16 : 3);
+            world.shake = Math.max(world.shake, e.isBoss ? 20 : 6);
             if (e.isBoss) {
               run.bossSpawned = false;
               run.nextBossAt = run.kills + 150 + Math.floor(Math.random() * 50);
@@ -591,23 +622,54 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     } else {
       if (Math.hypot(b.pos.x - p.pos.x, b.pos.y - p.pos.y) < p.size + b.size) {
         p.hull -= b.damage;
-        spawnParticles(world, b.pos, '#fca5a5', 6, 100);
+        // Player hit feedback: red spark, white flash, sharper shake.
+        spawnParticles(world, b.pos, '#fca5a5', 8, 130);
+        spawnParticles(world, b.pos, '#ffffff', 3, 60);
         world.bullets.splice(i, 1);
-        world.shake = Math.max(world.shake, 2);
+        world.shake = Math.max(world.shake, 4);
       }
     }
   }
 
   for (let j = world.enemies.length - 1; j >= 0; j--) {
     const e = world.enemies[j];
-    const dx = p.pos.x - e.pos.x;
-    const dy = p.pos.y - e.pos.y;
+
+    // Predictive lead: aim where the player will be in ~0.3s based
+    // on the player's current velocity. Ends the constant zig-zag
+    // chase by giving the AI a smoother target.
+    const leadTime = 0.3;
+    const fx = p.pos.x + p.vel.x * leadTime;
+    const fy = p.pos.y + p.vel.y * leadTime;
+    const dx = fx - e.pos.x;
+    const dy = fy - e.pos.y;
     const dst = Math.hypot(dx, dy) || 1;
-    e.angle = Math.atan2(dy, dx);
+
+    // Capped turn toward lead position (instead of snapping every
+    // frame). Per-archetype default - boss is slowest, elites turn
+    // slower than baseline due to mass.
+    const wantAngle = Math.atan2(dy, dx);
+    const aDiff = angleDiff(e.angle, wantAngle);
+    const archTurn = e.isBoss ? 1.4 : (e.tier === 'elite' ? 2.0 : 2.8);
+    const eCurSpeed = Math.hypot(e.vel.x, e.vel.y);
+    const eSpeedFrac = Math.min(1, eCurSpeed / Math.max(e.speed, 1));
+    const effTurnE = archTurn * (0.3 + 0.7 * eSpeedFrac);
+    const aMax = effTurnE * dt;
+    e.angle += Math.sign(aDiff) * Math.min(Math.abs(aDiff), aMax);
+
     const intent = movementIntent(e.archetype, dst, e.isBoss);
-    const targetSpeed = e.speed * weatherSpeed * intent;
-    e.vel.x = lerp(e.vel.x, (dx / dst) * targetSpeed, 1 - Math.exp(-2.5 * dt));
-    e.vel.y = lerp(e.vel.y, (dy / dst) * targetSpeed, 1 - Math.exp(-2.5 * dt));
+    const targetSpeedE = e.speed * weatherSpeed * intent;
+
+    // Same forward/lateral decomposition as the player. Grip is high
+    // for AI so they don't slide chaotically.
+    const fXe = Math.cos(e.angle);
+    const fYe = Math.sin(e.angle);
+    let eVFwd = e.vel.x * fXe + e.vel.y * fYe;
+    let eVLat = e.vel.x * fYe - e.vel.y * fXe;
+    eVFwd = lerp(eVFwd, targetSpeedE, 1 - Math.exp(-2.0 * dt));
+    eVLat = lerp(eVLat, 0, 1 - Math.exp(-4.0 * dt));
+    e.vel.x = eVFwd * fXe + eVLat * fYe;
+    e.vel.y = eVFwd * fYe - eVLat * fXe;
+
     e.pos.x = clamp(e.pos.x + e.vel.x * dt, 10, WORLD_WIDTH - 10);
     e.pos.y = clamp(e.pos.y + e.vel.y * dt, 10, WORLD_HEIGHT - 10);
     updateWake(e);
