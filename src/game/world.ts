@@ -17,10 +17,6 @@ import {
   WakePoint,
 } from './types';
 
-// Sandbox-feel world. 6000x6000 instead of the original 2400x2400 so
-// the player has actual ocean to wander before hitting any clamp. The
-// visual world-bounds rectangle is removed from Game.tsx so the edge
-// is invisible from the player's POV.
 export const WORLD_WIDTH = 6000;
 export const WORLD_HEIGHT = 6000;
 
@@ -69,7 +65,6 @@ function newSalvageRing(): SalvageRing {
       y: 200 + Math.random() * (WORLD_HEIGHT - 400),
     },
     radius: 58,
-    // Toned-down loot: 2-4 charges instead of 4-9.
     charges: 2 + Math.floor(Math.random() * 3),
     active: true,
     cooldown: 0,
@@ -97,8 +92,6 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
     wake: [],
   };
 
-  // Harbors arrayed around the spawn point. Distances scaled up to
-  // match the larger world without being too far to find.
   const harbors: Harbor[] = [];
   const harborCount = 4;
   for (let i = 0; i < harborCount; i++) {
@@ -115,8 +108,6 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
     });
   }
 
-  // More salvage rings (16 vs 8) so the larger world still has
-  // discoverable loot density.
   const salvageRings: SalvageRing[] = [];
   for (let i = 0; i < 16; i++) salvageRings.push(newSalvageRing());
 
@@ -223,6 +214,15 @@ export function switchShip(world: World, shipClassId: string) {
 export function cycleWeapon(world: World) {
   world.run.weaponMode = (world.run.weaponMode + 1) % 3;
   world.player.weaponMode = world.run.weaponMode;
+  // Tangible mode-change feedback: a colored burst at the bow so
+  // the player can see the change registered without having to
+  // fire and inspect the bullet pattern.
+  const modeColors = ['#22d3ee', '#fbbf24', '#f97316']; // SINGLE, SPREAD, TWIN
+  const color = modeColors[world.run.weaponMode] || '#22d3ee';
+  const p = world.player;
+  const bowX = p.pos.x + Math.cos(p.angle) * p.size * 1.4;
+  const bowY = p.pos.y + Math.sin(p.angle) * p.size * 1.4;
+  spawnParticles(world, { x: bowX, y: bowY }, color, 12, 160);
 }
 
 function spawnParticles(world: World, pos: Vec2, color: string, count: number, speed = 120) {
@@ -360,10 +360,6 @@ function dropCrate(world: World) {
 function fireBullets(world: World) {
   const p = world.player;
   const speed = 560;
-  // Side offsets in LOCAL ship space (positive = starboard). Scaled
-  // by ship size so a fortress's twin cannons sit wider than a
-  // skiff's. SPREAD also adds a small angular fan; TWIN fires
-  // parallel like a real broadside.
   const muzzles: { side: number; angle: number }[] =
     p.weaponMode === 1
       ? [
@@ -377,19 +373,12 @@ function fireBullets(world: World) {
           { side: p.size * 0.6, angle: 0 },
         ]
       : [{ side: 0, angle: 0 }];
-  // Forward (along bow) and right (starboard) unit vectors.
-  // Right vector = forward rotated +90 deg (-sin, cos in our convention).
   const fX = Math.cos(p.angle);
   const fY = Math.sin(p.angle);
   const rightX = -fY;
   const rightY = fX;
-  // Spawn at the ship's bow tip plus a per-cannon side offset.
   const nose = p.size * 1.6;
   const inherit = 0.3;
-  // CAPTURE current ship velocity BEFORE applying recoil so all
-  // bullets in this volley inherit the same pre-recoil momentum.
-  // Otherwise the first bullet got pre-recoil velocity and later
-  // bullets got the slowed value - made firing feel mushy.
   const pvxBefore = p.vel.x;
   const pvyBefore = p.vel.y;
   for (const m of muzzles) {
@@ -409,11 +398,8 @@ function fireBullets(world: World) {
       color: '#fde047',
       size: 4,
     });
-    // Muzzle flash at THIS cannon, not just the centerline.
     spawnParticles(world, { x: spawnX, y: spawnY }, '#fef3c7', 3, 60);
   }
-  // Recoil applies AFTER all bullets are spawned. 10 units per
-  // barrel along the ship's forward axis.
   const recoil = 10;
   p.vel.x -= fX * recoil * muzzles.length;
   p.vel.y -= fY * recoil * muzzles.length;
@@ -490,15 +476,29 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   }
   const weatherSpeed = run.weather === 'storm' ? 0.78 : 1;
 
-  // Rudder steering. Joystick Y = throttle (push UP = forward).
-  // Joystick X = rudder. Ship turns through rudder force, not by
-  // snapping toward target heading. Naval feel.
-  const throttleIn = -input.dy;
-  const rudderIn = input.dx;
-  const throttleActive = Math.abs(throttleIn) > 0.08;
-  const rudderActive = Math.abs(rudderIn) > 0.05;
+  // Rudder steering with cone-based reverse. Pulling joystick up =
+  // forward. Pulling within a narrow cone around straight-down
+  // (clock 5:30-6:30) = reverse. Anything in between (including
+  // down-right or down-left) is forward, so a hard down-right turn
+  // doesn't accidentally reverse the boat.
+  const stickMag = Math.hypot(input.dx, input.dy);
+  // Radial deadzone replaces the old per-axis thresholds. 0.10 of
+  // full stick deflection.
+  const stickActive = stickMag > 0.10;
 
-  if (throttleActive || rudderActive) {
+  if (stickActive) {
+    const stickAngle = Math.atan2(input.dy, input.dx);
+    // Cone around straight-down (PI/2 in screen-y-down coords).
+    // 0.45 rad ~= 26 deg each side of straight down = ~5:30 to 6:30.
+    const angleFromDown = Math.abs(angleDiff(stickAngle, Math.PI / 2));
+    const reverseActive = angleFromDown < 0.45;
+
+    // Rudder is still joystick.x.
+    const rudderIn = input.dx;
+    // Throttle: stick magnitude as forward, OR negative-mag inside
+    // the reverse cone.
+    const throttleIn = reverseActive ? -stickMag : stickMag;
+
     const curSpeed = Math.hypot(p.vel.x, p.vel.y);
     const speedFrac = Math.min(1, curSpeed / Math.max(p.speed, 1));
     const effectiveTurn = p.turn * (0.25 + 0.75 * speedFrac);
@@ -532,7 +532,6 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     p.hull = clamp(p.hull + run.upgrades.regenLevel * 1.2 * dt, 0, p.maxHull);
   }
 
-  // Camera with velocity lookahead. 0.18s lead sells velocity.
   world.camera.x = lerp(world.camera.x, p.pos.x + p.vel.x * 0.18, 1 - Math.exp(-4 * dt));
   world.camera.y = lerp(world.camera.y, p.pos.y + p.vel.y * 0.18, 1 - Math.exp(-4 * dt));
   world.shake = Math.max(0, world.shake - dt * 14);

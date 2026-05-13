@@ -37,6 +37,24 @@
 //                              (Android status-bar offset fix).
 //                            - hitbox padding +20 -> +36 large,
 //                              +16 -> +28 small.
+//   build #29 (2026-05-12) - fix the input layer:
+//                            - HUD buttons (FIRE / AUTO / WEAPON /
+//                              PAUSE) converted from labeled Views
+//                              under pointerEvents="none" into real
+//                              Pressables. Parent containers now use
+//                              pointerEvents="box-none" so empty
+//                              container space stays transparent.
+//                            - reverse activates only within a narrow
+//                              cone (clock 5:30-6:30, ~26 deg) around
+//                              straight-down on the joystick. Hard
+//                              down-right turns no longer reverse.
+//                            - radial deadzone (stickMag > 0.10)
+//                              replaces per-axis thresholds.
+//                            - weapon button border color tracks
+//                              the active mode (cyan/gold/orange);
+//                              cycleWeapon emits a colored bow
+//                              particle burst so the mode change
+//                              is visible.
 module.exports = function (api) {
   api.cache(true);
   return {
