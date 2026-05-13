@@ -75,14 +75,6 @@ function bakeVertexColors(obj: any, sampler: ColormapSampler): boolean {
 }
 
 function bakeGeometryTransforms(inner: THREE.Object3D, targetSize: number) {
-  // FIRST PASS: collect every Mesh in the GLB hierarchy with its
-  // fully-resolved world transform. This handles GLBs that have
-  // nested Groups (very common for Kenney's pack - e.g. a "boat"
-  // root Group containing a "hull" sub-Group containing the actual
-  // Mesh). If we just applyMatrix4(mesh.matrixWorld) and reset
-  // mesh.position, the parent Group's transform still applies on
-  // render and we get double-translated geometry. Build #28's
-  // bullet-offset bug was this exact issue.
   inner.updateMatrixWorld(true);
   type Captured = { geometry: THREE.BufferGeometry; material: any };
   const captured: Captured[] = [];
@@ -94,10 +86,6 @@ function bakeGeometryTransforms(inner: THREE.Object3D, targetSize: number) {
     }
   });
 
-  // Remove all existing children from inner. Re-attach the captured
-  // meshes directly as flat children of inner, each with identity
-  // transforms. After this, inner is a flat container of meshes
-  // whose geometries are in inner-world coordinates.
   while (inner.children.length > 0) {
     inner.remove(inner.children[0]);
   }
@@ -213,25 +201,22 @@ export function Render3D({ worldRef }: Props) {
       const active = new Map<string, THREE.Object3D>();
       const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
 
-      // Per-model bow-axis offset. Most Kenney watercraft are
-      // authored with the bow along local +Z, which the default
-      // rotation formula (-angle + PI/2) maps to world +X at
-      // angle=0. The rowing-boat GLBs are authored with the bow
-      // along local +X instead, so they render 90 degrees off
-      // without this override.
-      const MODEL_YAW_OFFSET: Record<string, number> = {
-        'boat-row-small': 0,
-        'boat-row-large': 0,
-      };
+      // Per-model bow-axis offset. The default formula
+      // (-angle + PI/2) assumes bow along local +Z and maps it to
+      // world +X at angle=0. An earlier pass added overrides for
+      // boat-row-small/large to 0 on a (mistaken) finding that their
+      // bow was along local +X - playtest showed the raft rendered
+      // 90 degrees clockwise of travel direction, so those GLBs are
+      // actually bow-+Z like the rest. Empty map = all models use
+      // the default; left in place as the hook for any future GLB
+      // that genuinely has a different forward axis.
+      const MODEL_YAW_OFFSET: Record<string, number> = {};
 
       function place(
         key: string, modelName: string, x: number, y: number,
         angle: number, worldSize: number, tintColor: number
       ) {
         let mesh = active.get(key);
-        // If the model for this key changed (defensive: also when an
-        // enemy id is somehow reused), tear down the old mesh and
-        // rebuild from the new template.
         if (mesh && (mesh as any).userData?.modelName !== modelName) {
           scene.remove(mesh);
           active.delete(key);
@@ -257,12 +242,6 @@ export function Render3D({ worldRef }: Props) {
         mesh.position.set(x, 0, y);
         const yawOffset = MODEL_YAW_OFFSET[modelName] ?? Math.PI / 2;
         mesh.rotation.y = -angle + yawOffset;
-        // Render at ~3.33x the data-defined worldSize so the ship is
-        // visually punchy on the orthographic viewport. Builds #25-26
-        // used scale=worldSize/15 with TEMPLATE_BASE_SIZE=50 giving
-        // rendered max-dim = 50 * worldSize/15 = 3.33*worldSize.
-        // Build #28 accidentally collapsed that to 1*worldSize when
-        // the formula changed to worldSize/TEMPLATE_BASE_SIZE.
         mesh.scale.setScalar(worldSize / 15);
       }
 
@@ -294,9 +273,6 @@ export function Render3D({ worldRef }: Props) {
           camera.lookAt(w.camera.x, 0, w.camera.y);
           camera.up.set(0, 0, -1);
 
-          // Update orthographic frustum from world.cameraZoom each
-          // frame so the SVG layer (which also reads cameraZoom)
-          // and the 3D layer stay in lockstep. zoom<1 = zoom out.
           const z = w.cameraZoom || 1;
           camera.left = -sw / 2 / z;
           camera.right = sw / 2 / z;
@@ -317,9 +293,6 @@ export function Render3D({ worldRef }: Props) {
             const e = w.enemies[i];
             const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
             if (!arch?.model) continue;
-            // Key by stable enemy id, not array index, so that splice
-            // on death doesn't make a survivor's mesh get reused for
-            // a different archetype next frame.
             const key = 'e' + e.id;
             place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
             keep.add(key);
