@@ -42,6 +42,18 @@
 //                              (real fix; CHANNEL was blank on #32)
 //                            New APK is the carrier for all of the
 //                            above so they don't depend on OTAs.
+//   build #25 (2026-05-12) - boat handling refinements bundled:
+//                            - wake stern offset now size*(5/3),
+//                              spacing 0.5, cap 20 (smoother curves,
+//                              anchored to visible stern)
+//                            - forward/lateral velocity decomposition
+//                              for player (snappy throttle k=4,
+//                              slow lateral decay k=1.2-2.7 with
+//                              stern drag scaling on turn rate) =
+//                              arcade speedboat carve feel
+//                            - bullets inherit 30% of ship velocity
+//                              (carried by the boat, not fired into
+//                              static air)
 module.exports = function (api) {
   api.cache(true);
   return {
