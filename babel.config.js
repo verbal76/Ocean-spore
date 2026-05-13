@@ -75,6 +75,12 @@
 //                              the "going fast" feel)
 //                            - pause button widened, "PAUS E" wrap
 //                              fixed
+//   build #27 (2026-05-12) - rebuild: the #26 babel marker landed in
+//                            an earlier MCP push than the world.ts /
+//                            Game.tsx code changes, so the #26 APK
+//                            shipped without the physics. This bump
+//                            triggers a fresh APK at HEAD with all
+//                            three #26 commits actually included.
 module.exports = function (api) {
   api.cache(true);
   return {
