@@ -1,86 +1,42 @@
 // Build-trigger marker.
 //   build #1-19 - see git history
-//   build #20 (2026-05-12) - bake vertex colors (no texture upload)
-//                            + bake geometry transforms.
-//   build #21 (2026-05-12) - OTAs not landing on the device. Bumping
-//                            this marker to fire android-build.yml
-//                            so the new APK bakes in everything that
-//                            was OTA-only:
-//                            - af5ded2: flatten Mesh hierarchy in
-//                              bake (fixes bullet ~ship-width offset)
-//                              + restore scale=worldSize/15 (fixes
-//                              tiny ship)
-//                            - 0bf440f: colormap sampler v-flip
-//                              removed (top-left of palette is black;
-//                              flipping mapped low UVs to bottom,
-//                              also black). Plus expanded COLORMAP
-//                              diag with uv(.014) sample bytes.
-//                            APK build pulls latest src at gradle
-//                            time so everything ships embedded.
-//   build #22 (2026-05-12) - sRGB->linear convert vertex colors in
-//                            colormap sampler. Renderer outputs sRGB
-//                            so feeding it raw byte/255 (sRGB) double-
-//                            encoded the gamma, lifting midtones and
-//                            making the Kenney palette look washed
-//                            out. Pre-converting at sample time lands
-//                            the output back on original sRGB bytes.
-//   build #23 (2026-05-12) - bow-aligned bullet spawn + saturation 1.5x
-//                            on vertex-color bake. Bullets now spawn at
-//                            size*1.6 forward (~bow tip) instead of a
-//                            fixed 14 units; same for enemy bullets.
-//                            Saturation pushes each sample away from
-//                            its gray average so the Kenney palette
-//                            reads as colorful, not muted.
-//   build #24 (2026-05-12) - bundled APK with everything since #32:
-//                            - wake trails behind every ship
-//                            - rowing-boat (boat-row-*) yaw fix
-//                            - mini-boss/elite enemy tier
-//                            - camera zoom-out on large ships
-//                            - stable enemy ids (mesh-swap fix)
-//                            - stable bullet/pickup ids (key-reuse fix)
-//                            - OTA channel via updates.requestHeaders
-//                              (real fix; CHANNEL was blank on #32)
-//                            New APK is the carrier for all of the
-//                            above so they don't depend on OTAs.
-//   build #25 (2026-05-12) - boat handling refinements bundled:
-//                            - wake stern offset now size*(5/3),
-//                              spacing 0.5, cap 20 (smoother curves,
-//                              anchored to visible stern)
-//                            - forward/lateral velocity decomposition
-//                              for player (snappy throttle k=4,
-//                              slow lateral decay k=1.2-2.7 with
-//                              stern drag scaling on turn rate) =
-//                              arcade speedboat carve feel
-//                            - bullets inherit 30% of ship velocity
-//                              (carried by the boat, not fired into
-//                              static air)
-//   build #26 (2026-05-12) - "make the boats feel like boats" pass:
-//                            - lateral grip flipped HIGH baseline
-//                              (k=4 straight) and LOW during turns
-//                              (k=1.5) - hull bites water going
-//                              straight, slides during a carve
-//                            - forward k 4 -> 2.5 (mass / inertia)
-//                            - coast damp 0.6 -> 0.3 (boats glide)
-//                            - speed-dependent turning: 30% rate
-//                              at rest, 100% at full speed (rudder
-//                              needs water flow)
-//                            - AI: predictive lead 0.3s + per-arch
-//                              capped turn (no more frame-snap)
-//                              + fwd/lat decomposition for enemies
-//                            - per-shot recoil (10 units backward)
-//                            - muzzle flash particles at bow
-//                            - stronger hit feedback (more particles,
-//                              shake on every connect)
-//                            - speed-based camera zoom-out (sells
-//                              the "going fast" feel)
-//                            - pause button widened, "PAUS E" wrap
-//                              fixed
-//   build #27 (2026-05-12) - rebuild: the #26 babel marker landed in
-//                            an earlier MCP push than the world.ts /
-//                            Game.tsx code changes, so the #26 APK
-//                            shipped without the physics. This bump
-//                            triggers a fresh APK at HEAD with all
-//                            three #26 commits actually included.
+//   build #20 (2026-05-12) - vertex-color bake + geometry transforms
+//   build #21 (2026-05-12) - OTAs not landing, rebake APK with src fixes
+//   build #22 (2026-05-12) - sRGB->linear conversion in colormap sampler
+//   build #23 (2026-05-12) - bow-aligned bullet spawn + 1.5x saturation
+//   build #24 (2026-05-12) - bundled APK: wakes, rowing-boat yaw fix,
+//                            mini-boss tier, camera zoom, stable ids,
+//                            real OTA channel fix.
+//   build #25 (2026-05-12) - boat handling: wake stern, fwd/lat decomp,
+//                            bullets inherit ship velocity.
+//   build #26 (2026-05-12) - heavy-boat physics: lateral grip flip,
+//                            speed-dependent turn, AI lead + capped turn,
+//                            recoil, hit feedback, speed-zoom, pause btn.
+//   build #27 (2026-05-12) - rebuild: prior babel push fired the APK
+//                            before world.ts/Game.tsx code changes landed.
+//   build #28 (2026-05-12) - lead-dev technical-report fixes:
+//                            CRITICAL:
+//                            - physical muzzle offsets (local ship space
+//                              rotated to world). SPREAD: 3 cannons at
+//                              +/-size*0.7 with fan angles. TWIN: 2 at
+//                              +/-size*0.6 parallel. Muzzle flashes per
+//                              cannon, not centerline.
+//                            - wake sampling on distance OR angle change
+//                              > 0.08 rad. Cap 24. WakePoint.angle added.
+//                            - recoil AFTER bullet spawn. Pre-recoil ship
+//                              velocity captured for all bullets in volley.
+//                            HIGH:
+//                            - rudder steering: joystick.y = throttle,
+//                              joystick.x = rudder. Ship turns via rudder
+//                              force, not target-heading snap.
+//                            MEDIUM:
+//                            - camera velocity look-ahead 0.18s.
+//                            - shake decay 10/s -> 14/s.
+//                            UI:
+//                            - touch coords pageX/Y -> locationX/Y
+//                              (Android status-bar offset fix).
+//                            - hitbox padding +20 -> +36 large,
+//                              +16 -> +28 small.
 module.exports = function (api) {
   api.cache(true);
   return {

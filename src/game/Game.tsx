@@ -34,11 +34,6 @@ interface Bounds { cx: number; cy: number; radius?: number; w?: number; h?: numb
 
 const TAP_KINDS = new Set<TouchKind>(['pause', 'auto', 'weapon', 'dock']);
 
-// Static layout constants. Hit-areas are computed from these instead
-// of measureInWindow because Android returns stale Y values for
-// bottom-anchored absolute views, making touch hit-areas disagree
-// with the visible button positions (player tapped above the button
-// to activate it).
 const JOY_BOTTOM = 28;
 const JOY_LEFT = 22;
 const JOY_SIZE = 130;
@@ -81,9 +76,6 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
       cy: sh - FIRE_BOTTOM - FIRE_SIZE / 2,
       radius: FIRE_SIZE / 2,
     },
-    // AUTO + WEAPON sit in a row above the FIRE button. controlsRight
-    // uses alignItems:center on a column whose width equals FIRE's
-    // (the widest child), so the row centers on FIRE's X.
     auto: {
       cx: sw - FIRE_RIGHT - FIRE_SIZE / 2 - (SMALLBTN_W + SMALLBTN_GAP) / 2,
       cy: sh - FIRE_BOTTOM - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
@@ -126,28 +118,32 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   }, []);
 
   function classify(x: number, y: number): TouchKind | null {
+    // Hitbox padding bumped (was +16/+20) - mobile thumbs need more
+    // tolerance, especially in combat. Combined with locationX/Y
+    // touch coords (below), the "press above the button" complaint
+    // goes away.
     const joy = bounds.joystick;
-    if (joy.radius !== undefined && Math.hypot(x - joy.cx, y - joy.cy) <= joy.radius + 20) return 'joystick';
+    if (joy.radius !== undefined && Math.hypot(x - joy.cx, y - joy.cy) <= joy.radius + 36) return 'joystick';
     const fire = bounds.fire;
-    if (fire.radius !== undefined && Math.hypot(x - fire.cx, y - fire.cy) <= fire.radius + 20) return 'fire';
+    if (fire.radius !== undefined && Math.hypot(x - fire.cx, y - fire.cy) <= fire.radius + 36) return 'fire';
 
     const dock = bounds.dock;
     if (worldRef.current.nearHarborIndex >= 0 && dock.w !== undefined && dock.h !== undefined) {
-      if (Math.abs(x - dock.cx) <= dock.w / 2 + 24 && Math.abs(y - dock.cy) <= dock.h / 2 + 24) return 'dock';
+      if (Math.abs(x - dock.cx) <= dock.w / 2 + 36 && Math.abs(y - dock.cy) <= dock.h / 2 + 36) return 'dock';
     }
 
     const pause = bounds.pause;
     if (pause.w !== undefined && pause.h !== undefined) {
-      if (Math.abs(x - pause.cx) <= pause.w / 2 + 20 && Math.abs(y - pause.cy) <= pause.h / 2 + 20) return 'pause';
+      if (Math.abs(x - pause.cx) <= pause.w / 2 + 36 && Math.abs(y - pause.cy) <= pause.h / 2 + 36) return 'pause';
     }
 
     const a = bounds.auto;
     if (a.w !== undefined && a.h !== undefined) {
-      if (Math.abs(x - a.cx) <= a.w / 2 + 16 && Math.abs(y - a.cy) <= a.h / 2 + 16) return 'auto';
+      if (Math.abs(x - a.cx) <= a.w / 2 + 28 && Math.abs(y - a.cy) <= a.h / 2 + 28) return 'auto';
     }
     const we = bounds.weapon;
     if (we.w !== undefined && we.h !== undefined) {
-      if (Math.abs(x - we.cx) <= we.w / 2 + 16 && Math.abs(y - we.cy) <= we.h / 2 + 16) return 'weapon';
+      if (Math.abs(x - we.cx) <= we.w / 2 + 28 && Math.abs(y - we.cy) <= we.h / 2 + 28) return 'weapon';
     }
 
     return null;
@@ -204,11 +200,16 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
     }
   }
 
-  // While paused, root touch dispatch is bypassed so the in-overlay
-  // Pressable buttons (RESUME, QUIT, etc.) receive their own taps.
+  // NOTE on coordinates: we use locationX/locationY (relative to the
+  // root View) rather than pageX/pageY. On Android, pageY can be
+  // shifted by status-bar / nav-bar / safe-area offsets relative to
+  // where the buttons are visually anchored, causing a ~30-50px
+  // vertical hitbox mismatch. The root View is flex:1 and covers the
+  // touchable area, so its local coordinate system matches the
+  // visual layout math.
   function shouldSetResponder(e: GestureResponderEvent) {
     if (pausedRef.current) return false;
-    return classify(e.nativeEvent.pageX, e.nativeEvent.pageY) !== null;
+    return classify(e.nativeEvent.locationX, e.nativeEvent.locationY) !== null;
   }
 
   function processTouches(e: GestureResponderEvent) {
@@ -218,15 +219,17 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
 
     for (const t of active) {
       const id = t.identifier;
+      const tx = (t as any).locationX ?? t.pageX;
+      const ty = (t as any).locationY ?? t.pageY;
       if (!touchesRef.current.has(id)) {
-        const kind = classify(t.pageX, t.pageY);
+        const kind = classify(tx, ty);
         if (!kind) continue;
-        touchesRef.current.set(id, { kind, startX: t.pageX, startY: t.pageY });
+        touchesRef.current.set(id, { kind, startX: tx, startY: ty });
         if (kind === 'fire') setFire(true);
         else if (TAP_KINDS.has(kind)) triggerAction(kind);
       }
       const state = touchesRef.current.get(id);
-      if (state?.kind === 'joystick') updateJoystick(t.pageX, t.pageY);
+      if (state?.kind === 'joystick') updateJoystick(tx, ty);
     }
 
     const ended = (e.nativeEvent.changedTouches || []).filter(
@@ -269,9 +272,6 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   const shakeAmount = w.shake;
   const sx = (Math.random() - 0.5) * shakeAmount;
   const sy = (Math.random() - 0.5) * shakeAmount;
-  // World-coord -> screen-pixel transform. Both axes scale by zoom
-  // so this layer stays in lockstep with the 3D layer's orthographic
-  // frustum (Render3D.tsx applies the same zoom to camera bounds).
   const toX = (x: number) => sw / 2 + (x - cam.x) * zoom + sx;
   const toY = (y: number) => sh / 2 + (y - cam.y) * zoom + sy;
 
@@ -313,14 +313,6 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
           />
         ))}
 
-        {/*
-          Wake trails behind every ship. Drawn before salvage rings,
-          harbors, ships, bullets so foreground elements render on
-          top. Each ship's wake is a list of past stern positions
-          (newest first). We connect consecutive points with a Line,
-          fading opacity from ~0.55 at the stern to 0 at the tail and
-          widening with age to suggest the wake spreading.
-        */}
         {(() => {
           const items: any[] = [];
           const pushWake = (wake: any[], keyPrefix: string, size: number) => {
