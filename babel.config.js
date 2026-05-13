@@ -54,6 +54,27 @@
 //                            - bullets inherit 30% of ship velocity
 //                              (carried by the boat, not fired into
 //                              static air)
+//   build #26 (2026-05-12) - "make the boats feel like boats" pass:
+//                            - lateral grip flipped HIGH baseline
+//                              (k=4 straight) and LOW during turns
+//                              (k=1.5) - hull bites water going
+//                              straight, slides during a carve
+//                            - forward k 4 -> 2.5 (mass / inertia)
+//                            - coast damp 0.6 -> 0.3 (boats glide)
+//                            - speed-dependent turning: 30% rate
+//                              at rest, 100% at full speed (rudder
+//                              needs water flow)
+//                            - AI: predictive lead 0.3s + per-arch
+//                              capped turn (no more frame-snap)
+//                              + fwd/lat decomposition for enemies
+//                            - per-shot recoil (10 units backward)
+//                            - muzzle flash particles at bow
+//                            - stronger hit feedback (more particles,
+//                              shake on every connect)
+//                            - speed-based camera zoom-out (sells
+//                              the "going fast" feel)
+//                            - pause button widened, "PAUS E" wrap
+//                              fixed
 module.exports = function (api) {
   api.cache(true);
   return {
