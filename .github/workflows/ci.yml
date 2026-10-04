@@ -38,6 +38,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Bundled asset integrity (matches the original APK)
+        run: node scripts/check-assets.mjs
+
       - name: Lint
         run: npm run lint
 
