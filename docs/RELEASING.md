@@ -20,8 +20,8 @@ export, then Gradle, and attaches `OceanSpore-v<ver>.apk` as a workflow
 artifact (14 days). Nothing is published automatically.
 
 To publish a GitHub Release: Actions -> APK Build -> Run workflow ->
-`publish = true`, or push a tag `apk-candidate-<build>` (e.g.
-`apk-candidate-40`), which builds and publishes the same way. The release is marked **pre-release**; the tag is
+`publish = true`, or add the **`publish-apk`** label to the pull request, which builds the PR
+head commit and publishes the same way (other labels do nothing). The release is marked **pre-release**; the tag is
 `v<versionName>` and points at the built commit.
 
 ## OTA updates (`eas-update.yml`)
