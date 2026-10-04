@@ -50,7 +50,7 @@ export function BrandSplash({ onDone }: Props) {
     // must still reach the game, so finish on a plain timer as well.
     const failsafe = setTimeout(finish, BRAND_SPLASH_TOTAL_MS + 1000);
     return () => { anim.stop(); clearTimeout(failsafe); };
-  }, [progress]);
+  }, [progress, finish]);
 
   const logoWidth = Math.min(width * 0.86, 520);
   const opacity = progress.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 1, 0] });

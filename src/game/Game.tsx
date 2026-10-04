@@ -63,6 +63,10 @@ const PAUSE_H = 38;
 
 export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   const worldRef = useRef<World>(initialWorld);
+  // Long-lived effects (game loop, app-state/back handlers) must call the
+  // latest callbacks, not the ones from the render they were created in.
+  const onDiedRef = useRef(onDied);
+  onDiedRef.current = onDied;
   const inputRef = useRef<InputState>({ dx: 0, dy: 0, fire: false, autoFire: true });
   const [, setTickCount] = useState(0);
   const [autoFire, setAutoFire] = useState(true);
@@ -133,7 +137,7 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
       if (!pausedRef.current) {
         const w = worldRef.current;
         const res = stepFixed(w, inputRef.current, frameDt, clock);
-        if (res.died) { onDied(w.run); return; }
+        if (res.died) { onDiedRef.current(w.run); return; }
         // Re-render only while the world is actually moving; paused frames
         // have nothing new to draw.
         setTickCount((t) => (t + 1) | 0);
@@ -150,10 +154,10 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   // instead of the sim running on (or the app closing) behind the player.
   useEffect(() => {
     const appSub = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') setPausedState(true);
+      if (state !== 'active') setPausedStateRef.current(true);
     });
     const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
-      setPausedState(!pausedRef.current);
+      setPausedStateRef.current(!pausedRef.current);
       return true;
     });
     return () => { appSub.remove(); backSub.remove(); };
@@ -227,6 +231,8 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
     setPaused(next);
     releaseAllInput();
   }
+  const setPausedStateRef = useRef(setPausedState);
+  setPausedStateRef.current = setPausedState;
 
   function triggerAction(kind: TouchKind) {
     if (kind === 'pause') {

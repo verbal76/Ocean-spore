@@ -28,7 +28,7 @@ export function AboutOverlay({ onClose }: Props) {
       ? 'not yet loaded (start a run first)'
       : glbCount;
 
-  const rows: Array<[string, string]> = [
+  const rows: [string, string][] = [
     ['APP', `Ocean Spore v${BUILD_INFO.appVersion}`],
     ['BUILD', `#${BUILD_INFO.buildNumber}`],
     ['COMMIT', `${BUILD_INFO.commitShort}${BUILD_INFO.dirty ? ' [dirty]' : ''}`],

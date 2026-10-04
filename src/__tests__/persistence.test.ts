@@ -1,3 +1,6 @@
+import { loadSave, saveSave, flushSaves, clearSave } from '../state/persistence';
+import { defaultSave } from '../state/saveSchema';
+
 // Simulated file system to exercise atomic writes, backup fallback and
 // write serialization without a device.
 const mockFiles = new Map<string, string>();
@@ -21,8 +24,6 @@ jest.mock('expo-file-system/legacy', () => ({
   deleteAsync: async (p: string) => { mockFiles.delete(p); },
 }));
 
-import { loadSave, saveSave, flushSaves, clearSave } from '../state/persistence';
-import { defaultSave } from '../state/saveSchema';
 
 const MAIN = 'file:///doc/ocean-spore-save.json';
 

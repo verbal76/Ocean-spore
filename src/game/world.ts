@@ -12,7 +12,6 @@ import {
   Run,
   SalvageRing,
   UpgradeKey,
-  UpgradeState,
   Vec2,
   WakePoint,
 } from './types';

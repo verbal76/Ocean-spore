@@ -16,7 +16,7 @@ import {
   applyUpgrades, createWorld, repairCost, switchShip,
   tryRepair, tryUpgrade, undock, World,
 } from './game/world';
-import { SHIPS_BY_ID, shipsUnlockedByKills } from './data/ships';
+import { SHIPS_BY_ID } from './data/ships';
 import { loadSave, saveSave } from './state/persistence';
 import { Progress, rollUpRun } from './state/progress';
 import { defaultSave, SAVE_SCHEMA_VERSION, SaveData } from './state/saveSchema';
