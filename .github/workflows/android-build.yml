@@ -5,8 +5,9 @@ name: APK Build (GitHub-hosted)
 # versionName = 1.1.<run number>, versionCode = <run number>.
 #
 # Pushes and pull requests BUILD and attach the APK as a workflow artifact.
-# Publishing a GitHub Release is a deliberate manual action:
-#   Actions -> APK Build -> Run workflow -> publish = true
+# Publishing a GitHub pre-release is a deliberate action, either:
+#   Actions -> APK Build -> Run workflow -> publish = true, or
+#   git tag apk-candidate-<build> && git push origin apk-candidate-<build>
 #
 # Signing: the Expo prebuild template signs release builds with its bundled
 # debug keystore. That is fine for sideloading but NOT for Google Play, which
@@ -21,6 +22,10 @@ on:
         default: false
   pull_request:
   push:
+    # Pushing a tag named apk-candidate-* is the deliberate "build this and
+    # publish a pre-release" action (same as dispatch with publish=true).
+    tags:
+      - 'apk-candidate-*'
     branches:
       - working-branch-ocean-spore
     paths:
@@ -172,7 +177,7 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: build
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/apk-candidate-'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
