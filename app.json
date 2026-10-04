@@ -8,9 +8,7 @@
     "userInterfaceStyle": "dark",
     "scheme": "oceanspore",
     "newArchEnabled": false,
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "2.0.0",
     "splash": {
       "resizeMode": "contain",
       "backgroundColor": "#03101c"
@@ -31,7 +29,12 @@
       "package": "com.verbal76.oceanspore",
       "adaptiveIcon": {
         "backgroundColor": "#03101c"
-      }
+      },
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "web": {
       "bundler": "metro"

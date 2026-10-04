@@ -1,83 +1,86 @@
 name: APK Build (GitHub-hosted)
 
-# GitHub-hosted Gradle build per HANDOFF.md. Uses Actions' free runner
-# minutes - no EAS Build credits or EAS_TOKEN required. Produces a
-# standalone release-mode APK (JS bundled in, no Metro dev server
-# needed) and publishes it to a GitHub Release tagged build-N that
-# the operator can sideload on a phone.
+# Builds a standalone release-mode APK on GitHub-hosted runners and names it
+#   OceanSpore-v<versionName>.apk      (see scripts/version.js)
+# versionName = 1.1.<run number>, versionCode = <run number>.
 #
-# Expo's prebuild template defaults release.signingConfig to
-# signingConfigs.debug, so the auto-included debug.keystore is used
-# to sign the release APK. No keystore secrets are required.
+# Pushes and pull requests BUILD and attach the APK as a workflow artifact.
+# Publishing a GitHub Release is a deliberate manual action:
+#   Actions -> APK Build -> Run workflow -> publish = true
+#
+# Signing: the Expo prebuild template signs release builds with its bundled
+# debug keystore. That is fine for sideloading but NOT for Google Play, which
+# needs an upload key (owner decision; see docs/RELEASING.md).
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a GitHub Release for this build'
+        type: boolean
+        default: false
+  pull_request:
   push:
     branches:
       - working-branch-ocean-spore
     paths:
       - 'package.json'
-      - 'package-lock.json'
       - 'app.json'
+      - 'app.config.js'
       - 'eas.json'
       - 'babel.config.js'
       - 'metro.config.js'
-      - 'android/**'
-      - 'ios/**'
-      - 'assets/icon.png'
-      - 'assets/adaptive-icon.png'
-      - 'assets/splash-icon.png'
-      - '.github/workflows/android-build.yml'
       - 'plugins/**'
+      - 'assets/**'
+      - 'src/**'
+      - 'App.tsx'
+      - '.github/workflows/android-build.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: apk-build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build Android APK
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      BUILD_NUMBER: ${{ github.run_number }}
+      EXPO_NO_TELEMETRY: '1'
+    outputs:
+      apk-name: ${{ steps.apk.outputs.name }}
+      version-name: ${{ steps.apk.outputs.version }}
+      sha256: ${{ steps.apk.outputs.sha256 }}
     steps:
-      - name: Check out repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 22
 
-      - name: Set up Java (Temurin 17)
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '17'
+          distribution: temurin
+          java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --no-audit --no-fund --legacy-peer-deps
 
       - name: Generate build info
         run: node scripts/write-build-info.mjs
 
       - name: Generate android/ project (expo prebuild)
         run: npx expo prebuild --platform android --clean
-        env:
-          EXPO_NO_TELEMETRY: '1'
-          # NOTE: the channel is now baked in via app.json's
-          # `updates.requestHeaders["expo-channel-name"]`, which the
-          # expo-updates Android config plugin reads at prebuild time
-          # and emits as an EXPO_UPDATES_REQUEST_HEADERS_KEY meta-data
-          # in AndroidManifest.xml. Earlier attempts to set this via an
-          # EXPO_UPDATES_CHANNEL env var or via `updates.channel` in
-          # app.json were no-ops - the plugin source reads strictly
-          # from `updates.requestHeaders`.
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -89,44 +92,97 @@ jobs:
           restore-keys: |
             gradle-
 
-      # assembleRelease bundles the JS into the APK and signs it with
-      # the auto-included debug.keystore (per Expo prebuild's default
-      # release.signingConfig). This is the standalone-sideload path -
-      # no Metro dev server needed at runtime.
       - name: Build release APK
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
 
-      - name: Locate APK
+      - name: Name and verify APK
         id: apk
         run: |
-          APK=$(find android/app/build/outputs/apk/release -name "*.apk" -print -quit)
-          if [ -z "$APK" ]; then
-            echo "::error::No APK found under android/app/build/outputs/apk/release"
-            exit 1
-          fi
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "name=ocean-spore-build-${{ github.run_number }}.apk" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          SRC=$(find android/app/build/outputs/apk/release -name '*.apk' -print -quit)
+          [ -n "$SRC" ] || { echo "::error::No APK produced"; exit 1; }
+          NAME=$(node scripts/version.js apk-name)
+          VERSION=$(node scripts/version.js version-name)
+          CODE=$(node scripts/version.js version-code)
+          mkdir -p dist-apk
+          cp "$SRC" "dist-apk/$NAME"
 
-      - name: Rename APK for upload
-        run: cp "${{ steps.apk.outputs.path }}" "${{ steps.apk.outputs.name }}"
+          # The APK itself must carry the identity we are about to publish.
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
+          BADGING=$("$AAPT" dump badging "dist-apk/$NAME")
+          echo "$BADGING" | grep -q "package: name='com.verbal76.oceanspore'" \
+            || { echo "::error::Unexpected package id"; exit 1; }
+          echo "$BADGING" | grep -q "versionCode='$CODE'" \
+            || { echo "::error::versionCode in APK != $CODE"; exit 1; }
+          echo "$BADGING" | grep -q "versionName='$VERSION'" \
+            || { echo "::error::versionName in APK != $VERSION"; exit 1; }
 
-      - name: Publish GitHub Release
-        if: github.event_name == 'push'
+          SHA=$(sha256sum "dist-apk/$NAME" | cut -d' ' -f1)
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "### $NAME"
+            echo "- versionName: \`$VERSION\`  versionCode: \`$CODE\`"
+            echo "- source: \`${{ github.sha }}\`"
+            echo "- SHA-256: \`$SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Report-only until the Expo/React Native/NDK upgrade lands (the SDK 52
+      # stack ships 4 KB-aligned native libraries). Flip ENFORCE_16KB to true
+      # then; Google Play requires 16 KB support for new submissions.
+      - name: 16 KB page-size qualification
+        env:
+          ENFORCE_16KB: 'false'
+        run: |
+          set +e
+          python3 scripts/check-16kb.py "dist-apk/${{ steps.apk.outputs.name }}" --json dist-apk/16kb-report.json | tee 16kb.txt
+          STATUS=${PIPESTATUS[0]}
+          { echo '### 16 KB page-size check'; echo '```'; tail -n 40 16kb.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$STATUS" -ne 0 ] && [ "$ENFORCE_16KB" = "true" ]; then exit 1; fi
+          if [ "$STATUS" -ne 0 ]; then echo "::warning::APK is not 16 KB page-size compatible (not enforced yet)"; fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: dist-apk/${{ steps.apk.outputs.name }}
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload 16 KB report
+        uses: actions/upload-artifact@v4
+        with:
+          name: 16kb-report-${{ steps.apk.outputs.version }}
+          path: dist-apk/16kb-report.json
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.apk-name }}
+
+      - name: Publish
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: 'Ocean Spore APK build #${{ github.run_number }}'
+          tag_name: v${{ needs.build.outputs.version-name }}
+          target_commitish: ${{ github.sha }}
+          name: Ocean Spore ${{ needs.build.outputs.version-name }}
+          files: ${{ needs.build.outputs.apk-name }}
           body: |
-            Auto-built from commit `${{ github.sha }}`.
+            ${{ needs.build.outputs.apk-name }}
 
-            Standalone release-mode APK (JS bundled in, no Metro
-            dev server needed). Signed with the auto-generated debug
-            keystore so it sideloads without any signing setup.
+            Source: `${{ github.sha }}`
+            SHA-256: `${{ needs.build.outputs.sha256 }}`
 
-            Install via:
-            1. Download the APK below.
-            2. On your Android device, allow "install from unknown sources" for your browser / file manager.
-            3. Open the downloaded APK to install.
-          files: ${{ steps.apk.outputs.name }}
+            Standalone release-mode APK for sideloading (signed with the
+            Expo debug keystore, not a Play upload key).
           token: ${{ secrets.GITHUB_TOKEN }}

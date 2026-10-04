@@ -1,0 +1,47 @@
+name: CI
+
+# Fast checks that must pass before anything is built or published.
+# Reusable: android-build.yml and eas-update.yml call it with `uses:`.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, test, bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --legacy-peer-deps
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Version identity
+        run: |
+          BUILD_NUMBER=${{ github.run_number }} node scripts/version.js apk-name
+          BUILD_NUMBER=${{ github.run_number }} node scripts/version.js version-code
+
+      - name: Export Android JS bundle (validates every import and asset)
+        run: node scripts/write-build-info.mjs && npx expo export --platform android --output-dir dist-ci
+        env:
+          EXPO_NO_TELEMETRY: '1'
+          BUILD_NUMBER: ${{ github.run_number }}

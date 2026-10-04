@@ -1,6 +1,8 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { createRequire } from 'node:module';
+const { currentVersion } = createRequire(import.meta.url)('./version.js');
 
 const OUTPUT = 'src/__generated__/build-info.ts';
 
@@ -14,12 +16,11 @@ const commit       = git('rev-parse HEAD', 'unknown');
 const commitShort  = git('rev-parse --short HEAD', 'unknown');
 const dirty        = git('status --porcelain') !== '';
 const builtAt      = new Date().toISOString();
-const buildNumber  = process.env.GITHUB_RUN_NUMBER || 'local';
+const buildNumber  = process.env.BUILD_NUMBER || process.env.GITHUB_RUN_NUMBER || 'local';
 
-const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-const app = JSON.parse(readFileSync('app.json', 'utf8'));
-const appVersion         = pkg.version ?? app?.expo?.version ?? 'unknown';
-const androidVersionCode = app?.expo?.android?.versionCode ?? null;
+const ver = currentVersion();
+const appVersion         = ver.versionName;
+const androidVersionCode = ver.versionCode;
 
 const buildId = `build #${buildNumber} ${commitShort} (${branch})${dirty ? ' [dirty]' : ''}`;
 const otaId   = `OTA ${commitShort} @ ${builtAt}`;

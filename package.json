@@ -1,6 +1,6 @@
 {
   "name": "ocean-spore",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "expo/AppEntry",
   "private": true,
   "scripts": {
@@ -10,7 +10,8 @@
     "prepare-assets": "node scripts/prepare-assets.mjs",
     "build-info": "node scripts/write-build-info.mjs",
     "test": "jest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "version-info": "node scripts/version.js apk-name"
   },
   "dependencies": {
     "expo": "~52.0.0",

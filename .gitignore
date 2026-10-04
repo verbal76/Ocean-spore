@@ -1,6 +1,8 @@
 node_modules/
 .expo/
 dist/
+dist-ci/
+dist-apk/
 web-build/
 *.log
 npm-debug.*
@@ -19,8 +21,11 @@ build/
 *.p8
 *.p12
 *.key
+*.pem
+*.keystore
 *.mobileprovision
 
 # Local env / OS
-.env*.local
+.env
+.env.*
 .DS_Store
