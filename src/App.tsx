@@ -16,8 +16,9 @@ import {
   applyUpgrades, createWorld, repairCost, switchShip,
   tryRepair, tryUpgrade, undock, World,
 } from './game/world';
-import { SHIPS_BY_ID } from './data/ships';
+import { SHIPS_BY_ID, shipsUnlockedByKills } from './data/ships';
 import { loadSave, saveSave } from './state/persistence';
+import { Progress, rollUpRun } from './state/progress';
 import { defaultSave, SAVE_SCHEMA_VERSION, SaveData } from './state/saveSchema';
 
 export default function App() {
@@ -91,7 +92,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
   }
 
   function startRun() {
-    const w = createWorld(selectedShip, [...unlockedShips]);
+    const w = createWorld(selectedShip, [...unlockedShips], lifetimeKills);
     applyUpgrades(w);
     w.player.hull = w.player.maxHull;
     worldRef.current = w;
@@ -100,34 +101,26 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
 
   function onDocked(_world: World, _idx: number) { setScreen('docked'); }
 
+  function currentProgress(): Progress {
+    return { unlockedShips, highScore, totalKills: lifetimeKills, totalParts: lifetimeParts };
+  }
+
+  // Roll a run into lifetime progress: update state and persist. Shared by
+  // game-over and save-and-quit. Returns the ships newly earned.
+  function bankRun(run: Run): string[] {
+    const { next, newlyUnlocked } = rollUpRun(currentProgress(), run);
+    setHighScore(next.highScore);
+    setUnlockedShips(next.unlockedShips);
+    setLifetimeKills(next.totalKills);
+    setLifetimeParts(next.totalParts);
+    persist({ ...next, lastShip: selectedShip });
+    return newlyUnlocked;
+  }
+
   function onDied(run: Run) {
     lastRunRef.current = run;
-    const newHigh = Math.max(highScore, run.score);
-    setHighScore(newHigh);
-
-    const before = new Set(unlockedShips);
-    const after = new Set(run.unlockedShips);
-    const newly: string[] = [];
-    after.forEach((id) => {
-      if (!before.has(id)) newly.push(SHIPS_BY_ID[id]?.name ?? id);
-    });
-    setNewUnlocks(newly);
-    const newUnlockedList = Array.from(after);
-    setUnlockedShips(newUnlockedList);
-
-    const newLifetimeKills = lifetimeKills + run.kills;
-    const newLifetimeParts = lifetimeParts + run.totalParts;
-    setLifetimeKills(newLifetimeKills);
-    setLifetimeParts(newLifetimeParts);
-
-    persist({
-      unlockedShips: newUnlockedList,
-      highScore: newHigh,
-      totalKills: newLifetimeKills,
-      totalParts: newLifetimeParts,
-      lastShip: selectedShip,
-    });
-
+    const newly = bankRun(run);
+    setNewUnlocks(newly.map((id) => SHIPS_BY_ID[id]?.name ?? id));
     setScreen('dead');
   }
 
@@ -177,30 +170,8 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
   function onShipSelectBack() { setScreen('splash'); }
 
   function onQuitToMenu(world: World) {
-    // Roll the current run's progress into lifetime totals before
-    // dropping back to the splash screen, so closing mid-run still
-    // saves the player's earned kills/parts.
-    const run = world.run;
-    const newHigh = Math.max(highScore, run.score);
-    const after = new Set(run.unlockedShips);
-    const newUnlockedList = Array.from(after);
-    const newLifetimeKills = lifetimeKills + run.kills;
-    const newLifetimeParts = lifetimeParts + run.totalParts;
-
-    setHighScore(newHigh);
-    setUnlockedShips(newUnlockedList);
-    setLifetimeKills(newLifetimeKills);
-    setLifetimeParts(newLifetimeParts);
-
-    persist({
-      unlockedShips: newUnlockedList,
-      highScore: newHigh,
-      totalKills: newLifetimeKills,
-      totalParts: newLifetimeParts,
-      lastShip: selectedShip,
-      captainName,
-    });
-
+    // Closing mid-run still banks the run's kills/parts/unlocks.
+    bankRun(world.run);
     worldRef.current = null;
     setScreen('splash');
   }

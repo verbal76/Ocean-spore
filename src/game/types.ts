@@ -129,6 +129,8 @@ export interface UpgradeState {
 export type UpgradeKey = keyof UpgradeState;
 
 export interface Run {
+  /** Lifetime kills banked before this run started (unlocks use lifetime + run kills). */
+  lifetimeKillsAtStart: number;
   /** Simulated seconds spent actually sailing (excludes pause, harbor, background). */
   activeSeconds: number;
   parts: number;

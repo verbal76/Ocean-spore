@@ -104,6 +104,17 @@ export const SHIPS: ShipClass[] = [
   },
 ];
 
+/**
+ * Ships earned by lifetime kills. Unlock thresholds (10 .. 5000) are lifetime
+ * "mastery" numbers: the save file tracks totalKills and the menus show it
+ * beside every threshold. (They were mistakenly compared against kills in a
+ * single run, which made the top ships unreachable: 5000 kills at ~4/min is
+ * ~21 hours in one run.)
+ */
+export function shipsUnlockedByKills(lifetimeKills: number): string[] {
+  return SHIPS.filter((s) => s.unlockKills <= lifetimeKills).map((s) => s.id);
+}
+
 export const SHIPS_BY_ID: Record<string, ShipClass> = SHIPS.reduce(
   (acc, s) => ({ ...acc, [s.id]: s }),
   {} as Record<string, ShipClass>

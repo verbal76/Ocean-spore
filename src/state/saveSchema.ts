@@ -1,4 +1,4 @@
-import { SHIPS_BY_ID } from '../data/ships';
+import { SHIPS_BY_ID, shipsUnlockedByKills } from '../data/ships';
 
 // Pure save-file schema: validation + migration. No I/O here so it can be
 // unit-tested without the native file system.
@@ -56,6 +56,9 @@ export function sanitizeSave(raw: unknown): SaveData {
   out.highScore = count(r.highScore);
   out.totalKills = count(r.totalKills);
   out.totalParts = count(r.totalParts);
+
+  // Ships are earned by lifetime kills; heal saves whose list is stale.
+  out.unlockedShips = Array.from(new Set([...out.unlockedShips, ...shipsUnlockedByKills(out.totalKills)]));
 
   out.lastShip =
     typeof r.lastShip === 'string' && out.unlockedShips.includes(r.lastShip)

@@ -1,6 +1,6 @@
 import { SHIPS_BY_ID } from '../data/ships';
 import { ENEMIES, ENEMIES_BY_ID, BOSS } from '../data/enemies';
-import { upgradeCost } from '../data/upgrades';
+import { UPGRADES, upgradeCost } from '../data/upgrades';
 import { angleDiff, clamp, lerp } from '../util/math';
 import {
   Bullet,
@@ -74,7 +74,7 @@ function newSalvageRing(): SalvageRing {
   };
 }
 
-export function createWorld(shipClassId: string, unlocked: string[]): World {
+export function createWorld(shipClassId: string, unlocked: string[], lifetimeKills = 0): World {
   const ship = SHIPS_BY_ID[shipClassId];
   const player: PlayerShip = {
     classId: shipClassId,
@@ -122,6 +122,7 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
     harbors,
     salvageRings,
     run: {
+      lifetimeKillsAtStart: lifetimeKills,
       activeSeconds: 0,
       parts: 0,
       totalParts: 0,
@@ -195,6 +196,8 @@ export function tryRepair(world: World): boolean {
 
 export function tryUpgrade(world: World, key: UpgradeKey): boolean {
   const lvl = world.run.upgrades[key];
+  const def = UPGRADES.find((u) => u.key === key);
+  if (!def || lvl >= def.maxLevel) return false;
   const cost = upgradeCost(key, lvl);
   if (world.run.parts < cost) return false;
   world.run.parts -= cost;
@@ -408,7 +411,7 @@ function fireBullets(world: World) {
 }
 
 function tryUnlockShips(world: World) {
-  const k = world.run.kills;
+  const k = world.run.lifetimeKillsAtStart + world.run.kills;
   for (const id of Object.keys(SHIPS_BY_ID)) {
     const def = SHIPS_BY_ID[id];
     if (k >= def.unlockKills && !world.run.unlockedShips.includes(id)) {
