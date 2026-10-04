@@ -561,7 +561,9 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   const wantFire = input.fire || input.autoFire;
   if (wantFire && p.fireCooldown <= 0) {
     fireBullets(world);
-    p.fireCooldown = 1 / p.fireRate;
+    // Carry (at most one tick of) overshoot so the average rate is exact
+    // instead of being quantised to the frame time.
+    p.fireCooldown = Math.max(-dt, p.fireCooldown) + 1 / p.fireRate;
   }
 
   for (let i = world.bullets.length - 1; i >= 0; i--) {
@@ -830,4 +832,44 @@ export function undock(world: World) {
     world.player.pos.x = clamp(h.pos.x + Math.cos(a) * r, 30, WORLD_WIDTH - 30);
     world.player.pos.y = clamp(h.pos.y + Math.sin(a) * r, 30, WORLD_HEIGHT - 30);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-timestep driver. Physics, collisions and cooldowns always advance in
+// FIXED_DT slices, so gameplay is identical at 30/60/120 fps and fast bullets
+// can't tunnel through small boats on a slow frame.
+
+export const FIXED_DT = 1 / 60;
+/** Never simulate more than this many steps for one rendered frame. */
+export const MAX_STEPS_PER_FRAME = 6;
+
+export interface StepClock {
+  accumulator: number;
+}
+
+export function newStepClock(): StepClock {
+  return { accumulator: 0 };
+}
+
+export function stepFixed(
+  world: World,
+  input: InputState,
+  frameDt: number,
+  clock: StepClock,
+): { died: boolean; steps: number } {
+  if (!(frameDt > 0) || !Number.isFinite(frameDt)) return { died: false, steps: 0 };
+  clock.accumulator += frameDt;
+  let steps = 0;
+  while (clock.accumulator >= FIXED_DT && steps < MAX_STEPS_PER_FRAME) {
+    clock.accumulator -= FIXED_DT;
+    steps++;
+    if (tick(world, FIXED_DT, input).died) {
+      clock.accumulator = 0;
+      return { died: true, steps };
+    }
+  }
+  // Spiral-of-death guard: after a long stall drop the backlog rather than
+  // trying to catch up with more and more steps.
+  if (steps === MAX_STEPS_PER_FRAME) clock.accumulator = 0;
+  return { died: false, steps };
 }

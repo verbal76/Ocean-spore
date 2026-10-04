@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  AppState,
   BackHandler,
   Dimensions,
   GestureResponderEvent,
@@ -15,7 +16,7 @@ import { FireButton } from '../ui/FireButton';
 import { HUD } from '../ui/HUD';
 import { Joystick } from '../ui/Joystick';
 import { Run } from './types';
-import { cycleWeapon, dockAt, InputState, tick, World } from './world';
+import { cycleWeapon, dockAt, InputState, newStepClock, stepFixed, World } from './world';
 import { flushSaves } from '../state/persistence';
 
 interface Props {
@@ -110,21 +111,40 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   useEffect(() => {
     let mounted = true;
     let last = performance.now();
+    let raf = 0;
+    const clock = newStepClock();
     const loop = () => {
       if (!mounted) return;
       const now = performance.now();
-      const dt = Math.min(0.05, (now - last) / 1000);
+      const frameDt = (now - last) / 1000;
       last = now;
       if (!pausedRef.current) {
         const w = worldRef.current;
-        const res = tick(w, dt, inputRef.current);
+        const res = stepFixed(w, inputRef.current, frameDt, clock);
         if (res.died) { onDied(w.run); return; }
+        // Re-render only while the world is actually moving; paused frames
+        // have nothing new to draw.
+        setTickCount((t) => (t + 1) | 0);
+      } else {
+        clock.accumulator = 0;
       }
-      setTickCount((t) => (t + 1) | 0);
-      requestAnimationFrame(loop);
+      raf = requestAnimationFrame(loop);
     };
-    requestAnimationFrame(loop);
-    return () => { mounted = false; };
+    raf = requestAnimationFrame(loop);
+    return () => { mounted = false; cancelAnimationFrame(raf); };
+  }, []);
+
+  // Auto-pause when the app is backgrounded and when Android Back is pressed,
+  // instead of the sim running on (or the app closing) behind the player.
+  useEffect(() => {
+    const appSub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') setPausedState(true);
+    });
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setPausedState(!pausedRef.current);
+      return true;
+    });
+    return () => { appSub.remove(); backSub.remove(); };
   }, []);
 
   function classify(x: number, y: number): TouchKind | null {
@@ -181,9 +201,19 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
     inputRef.current.fire = on;
   }
 
+  // Releases every held control. Called whenever the sim stops or resumes:
+  // while paused processTouches() ignores finger-up events, so a held
+  // joystick/FIRE would otherwise stay latched after resume.
+  function releaseAllInput() {
+    touchesRef.current.clear();
+    clearJoystick();
+    setFire(false);
+  }
+
   function setPausedState(next: boolean) {
     pausedRef.current = next;
     setPaused(next);
+    releaseAllInput();
   }
 
   function triggerAction(kind: TouchKind) {
@@ -198,8 +228,7 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
     } else if (kind === 'dock') {
       const w = worldRef.current;
       if (w.nearHarborIndex >= 0) {
-        pausedRef.current = true;
-        setPaused(true);
+        setPausedState(true);
         dockAt(w, w.nearHarborIndex);
         onDocked(w, w.nearHarborIndex);
       }
