@@ -7,6 +7,7 @@ import { CaptainScreen } from './ui/CaptainScreen';
 import { GameOverScreen } from './ui/GameOverScreen';
 import { ShipyardScreen } from './ui/ShipyardScreen';
 import { ShipSelectScreen } from './ui/ShipSelectScreen';
+import { BrandSplash } from './ui/BrandSplash';
 import { SplashScreen } from './ui/SplashScreen';
 import { GameScreen, Run, UpgradeKey } from './game/types';
 import {
@@ -18,7 +19,7 @@ import { loadSave, saveSave } from './state/persistence';
 import { defaultSave, SAVE_SCHEMA_VERSION, SaveData } from './state/saveSchema';
 
 export default function App() {
-  const [screen, setScreen] = useState<GameScreen>('splash');
+  const [screen, setScreen] = useState<GameScreen>('brand');
   const [selectedShip, setSelectedShip] = useState<string>('raft');
   const [unlockedShips, setUnlockedShips] = useState<string[]>(['raft']);
   const [highScore, setHighScore] = useState<number>(0);
@@ -195,6 +196,8 @@ export default function App() {
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
+
+      {screen === 'brand' && <BrandSplash onDone={() => setScreen('splash')} />}
 
       {screen === 'splash' && (
         <SplashScreen

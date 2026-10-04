@@ -109,6 +109,7 @@ export interface Particle {
 }
 
 export type GameScreen =
+  | 'brand'
   | 'splash'
   | 'captain'
   | 'shipyard'

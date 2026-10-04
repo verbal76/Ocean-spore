@@ -28,6 +28,9 @@
     "android": {
       "package": "com.verbal76.oceanspore",
       "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/adaptive-foreground.png",
+        "backgroundImage": "./assets/icons/adaptive-background.png",
+        "monochromeImage": "./assets/icons/adaptive-monochrome.png",
         "backgroundColor": "#03101c"
       },
       "blockedPermissions": [
@@ -55,6 +58,7 @@
       "eas": {
         "projectId": "0cc1bf9c-b6c8-4ec7-bf71-4f7d6bb5b5d3"
       }
-    }
+    },
+    "icon": "./assets/icons/icon.png"
   }
 }
