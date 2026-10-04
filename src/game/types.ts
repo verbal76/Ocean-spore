@@ -57,6 +57,8 @@ export interface EnemyShip {
   partsDrop: number;
   isBoss?: boolean;
   tier?: 'elite';
+  /** Seconds until this enemy can deal contact damage again. */
+  contactCooldown?: number;
   wake: WakePoint[];
 }
 
@@ -126,7 +128,8 @@ export interface UpgradeState {
 export type UpgradeKey = keyof UpgradeState;
 
 export interface Run {
-  startedAt: number;
+  /** Simulated seconds spent actually sailing (excludes pause, harbor, background). */
+  activeSeconds: number;
   parts: number;
   totalParts: number;
   kills: number;

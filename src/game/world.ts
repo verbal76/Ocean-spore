@@ -18,6 +18,8 @@ import {
 } from './types';
 
 export const WORLD_WIDTH = 6000;
+/** Minimum seconds between boss contact hits on the player. */
+export const BOSS_CONTACT_COOLDOWN = 0.75;
 export const WORLD_HEIGHT = 6000;
 
 export interface World {
@@ -120,7 +122,7 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
     harbors,
     salvageRings,
     run: {
-      startedAt: Date.now(),
+      activeSeconds: 0,
       parts: 0,
       totalParts: 0,
       kills: 0,
@@ -462,7 +464,8 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
   const run = world.run;
   const p = world.player;
 
-  const now = Date.now() / 1000;
+  run.activeSeconds += dt;
+  const now = world.elapsed;
   if (run.weather === 'storm' && now > run.weatherUntil) {
     run.weather = 'clear';
     run.weatherCooldown = 35 + Math.random() * 30;
@@ -621,6 +624,11 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     const dx = fx - e.pos.x;
     const dy = fy - e.pos.y;
     const dst = Math.hypot(dx, dy) || 1;
+    // True distance to the player's hull. `dst` above is to the predicted
+    // lead point and is only for steering; range and contact use the real one.
+    const pdx = p.pos.x - e.pos.x;
+    const pdy = p.pos.y - e.pos.y;
+    const pdst = Math.hypot(pdx, pdy) || 1;
 
     const wantAngle = Math.atan2(dy, dx);
     const aDiff = angleDiff(e.angle, wantAngle);
@@ -648,7 +656,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     updateWake(e);
 
     const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
-    if (arch && arch.fireRate && arch.fireRange && dst < arch.fireRange) {
+    if (arch && arch.fireRate && arch.fireRange && pdst < arch.fireRange) {
       e.fireCooldown -= dt;
       if (e.fireCooldown <= 0) {
         e.fireCooldown = 1 / arch.fireRate;
@@ -676,7 +684,8 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
       }
     }
 
-    if (dst < p.size + e.size - 2) {
+    if (e.contactCooldown) e.contactCooldown = Math.max(0, e.contactCooldown - dt);
+    if (pdst < p.size + e.size - 2 && !(e.isBoss && e.contactCooldown)) {
       p.hull -= e.damage * (e.isBoss ? 1.0 : 0.7);
       spawnParticles(world, e.pos, e.color, e.isBoss ? 16 : 8, 150);
       world.shake = Math.max(world.shake, e.isBoss ? 8 : 3);
@@ -687,8 +696,11 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
         run.score += 50;
         tryUnlockShips(world);
       } else {
-        p.vel.x -= (dx / dst) * 220;
-        p.vel.y -= (dy / dst) * 220;
+        // Bosses are rammed repeatedly, so hits are rate-limited and shove
+        // the player AWAY from the boss.
+        e.contactCooldown = BOSS_CONTACT_COOLDOWN;
+        p.vel.x += (pdx / pdst) * 220;
+        p.vel.y += (pdy / pdst) * 220;
       }
     }
   }

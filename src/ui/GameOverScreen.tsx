@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function GameOverScreen({ run, newUnlocks, onRetry, onMenu }: Props) {
-  const seconds = Math.max(1, Math.floor((Date.now() - run.startedAt) / 1000));
+  const seconds = Math.max(1, Math.floor(run.activeSeconds));
   const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
   const ss = String(seconds % 60).padStart(2, '0');
 
