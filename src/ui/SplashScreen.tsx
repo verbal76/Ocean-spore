@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { COLORS } from '../colors';
 import { AboutOverlay } from './AboutOverlay';
+
+const EMBLEM = require('../../assets/icons/adaptive-foreground.png');
 
 interface Props {
   captainName: string;
@@ -16,15 +18,28 @@ export function SplashScreen({
   captainName, highScore, lifetimeKills, lifetimeParts, onContinue, onNewCaptain,
 }: Props) {
   const pulse = useRef(new Animated.Value(0)).current;
+  const bob = useRef(new Animated.Value(0)).current;
+  const { width } = useWindowDimensions();
   const [showAbout, setShowAbout] = useState(false);
   useEffect(() => {
-    Animated.loop(
+    const pulseLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
         Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true }),
       ])
-    ).start();
-  }, [pulse]);
+    );
+    // Slow swell under the emblem, like a boat riding the water.
+    const bobLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bob, { toValue: 1, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(bob, { toValue: 0, duration: 2400, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    );
+    pulseLoop.start();
+    bobLoop.start();
+    return () => { pulseLoop.stop(); bobLoop.stop(); };
+  }, [pulse, bob]);
+  const emblemSize = Math.min(width * 0.9, 380);
 
   const hasCaptain = captainName.trim().length > 0;
   const hasLifetime = lifetimeKills > 0 || lifetimeParts > 0;
@@ -43,6 +58,19 @@ export function SplashScreen({
         <Text style={styles.subtitle}>NAVAL SURVIVAL · ARCADE</Text>
         <Text style={styles.title}>{'OCEAN\nSPORE'}</Text>
         <Text style={styles.tag}>Start as a junk raft. Become a floating apocalypse.</Text>
+      </View>
+
+      <View style={styles.emblemWrap} pointerEvents="none">
+        <Animated.Image
+          source={EMBLEM}
+          style={{
+            width: emblemSize,
+            height: emblemSize,
+            transform: [{ translateY: bob.interpolate({ inputRange: [0, 1], outputRange: [-6, 6] }) }],
+          }}
+          resizeMode="contain"
+          accessibilityLabel="Ocean Spore emblem"
+        />
       </View>
 
       <View style={styles.bottom}>
@@ -113,7 +141,7 @@ const styles = StyleSheet.create({
     zIndex: 5,
   },
   infoBtnText: { color: COLORS.accent, fontSize: 12, fontWeight: '900', letterSpacing: 2 },
-  heroWrap: { alignItems: 'center', marginTop: 60 },
+  heroWrap: { alignItems: 'center', marginTop: 52 },
   subtitle: { color: COLORS.textDim, fontSize: 11, letterSpacing: 4, marginBottom: 8 },
   title: {
     color: COLORS.accent,
@@ -124,6 +152,7 @@ const styles = StyleSheet.create({
     lineHeight: 68,
   },
   tag: { color: COLORS.textDim, fontSize: 13, marginTop: 14, letterSpacing: 1, textAlign: 'center' },
+  emblemWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   bottom: { alignItems: 'center', gap: 10 },
   captainBlock: { alignItems: 'center', marginBottom: 6 },
   captainLabel: { color: COLORS.textDim, fontSize: 10, letterSpacing: 3, fontWeight: '700' },
