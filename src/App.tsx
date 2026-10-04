@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from './colors';
 import { Game } from './game/Game';
 import { CaptainScreen } from './ui/CaptainScreen';
@@ -19,6 +20,15 @@ import { loadSave, saveSave } from './state/persistence';
 import { defaultSave, SAVE_SCHEMA_VERSION, SaveData } from './state/saveSchema';
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppInner />
+    </SafeAreaProvider>
+  );
+}
+
+function AppInner() {
+  const insets = useSafeAreaInsets();
   const [screen, setScreen] = useState<GameScreen>('brand');
   const [selectedShip, setSelectedShip] = useState<string>('raft');
   const [unlockedShips, setUnlockedShips] = useState<string[]>(['raft']);
@@ -193,8 +203,15 @@ export default function App() {
 
   const w = worldRef.current;
 
+  // Edge-to-edge: menus keep the original look by sitting inside the system
+  // bars. The game and the brand card draw full-bleed and handle insets
+  // themselves.
+  const inset = screen === 'playing' || screen === 'brand'
+    ? null
+    : { paddingTop: insets.top, paddingBottom: insets.bottom };
+
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, inset]}>
       <StatusBar style="light" />
 
       {screen === 'brand' && <BrandSplash onDone={() => setScreen('splash')} />}

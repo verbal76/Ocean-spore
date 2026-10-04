@@ -9,6 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, G, Line, Polygon, Rect } from 'react-native-svg';
 import { COLORS } from '../colors';
 import { RENDER_3D, Render3D } from '../render3d';
@@ -72,36 +73,47 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   const [firePressed, setFirePressed] = useState(false);
   const touchesRef = useRef<Map<number | string, TouchState>>(new Map());
 
-  const screen = Dimensions.get('window');
-  const sw = screen.width;
-  const sh = screen.height;
+  // Edge-to-edge: the game draws behind the status and gesture bars, so
+  // controls and the HUD are offset by the system insets. Layout size comes
+  // from the real measured root view (not guessed window constants), and
+  // touch coordinates are relative to that same view.
+  const insets = useSafeAreaInsets();
+  const [layout, setLayout] = useState(() => {
+    const d = Dimensions.get('window');
+    return { width: d.width, height: d.height };
+  });
+  const sw = layout.width;
+  const sh = layout.height;
+  const joyBottom = JOY_BOTTOM + insets.bottom;
+  const fireBottom = FIRE_BOTTOM + insets.bottom;
+  const pauseTop = PAUSE_TOP + insets.top;
 
   const bounds: Record<TouchKind, Bounds> = {
     joystick: {
       cx: JOY_LEFT + JOY_SIZE / 2,
-      cy: sh - JOY_BOTTOM - JOY_SIZE / 2,
+      cy: sh - joyBottom - JOY_SIZE / 2,
       radius: JOY_SIZE / 2,
     },
     fire: {
       cx: sw - FIRE_RIGHT - FIRE_SIZE / 2,
-      cy: sh - FIRE_BOTTOM - FIRE_SIZE / 2,
+      cy: sh - fireBottom - FIRE_SIZE / 2,
       radius: FIRE_SIZE / 2,
     },
     auto: {
       cx: sw - FIRE_RIGHT - FIRE_SIZE / 2 - (SMALLBTN_W + SMALLBTN_GAP) / 2,
-      cy: sh - FIRE_BOTTOM - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
+      cy: sh - fireBottom - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
       w: SMALLBTN_W,
       h: SMALLBTN_H,
     },
     weapon: {
       cx: sw - FIRE_RIGHT - FIRE_SIZE / 2 + (SMALLBTN_W + SMALLBTN_GAP) / 2,
-      cy: sh - FIRE_BOTTOM - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
+      cy: sh - fireBottom - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
       w: SMALLBTN_W,
       h: SMALLBTN_H,
     },
     pause: {
       cx: sw - PAUSE_RIGHT - PAUSE_W / 2,
-      cy: PAUSE_TOP + PAUSE_H / 2,
+      cy: pauseTop + PAUSE_H / 2,
       w: PAUSE_W,
       h: PAUSE_H,
     },
@@ -323,6 +335,10 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   return (
     <View
       style={[styles.root, stormy && { backgroundColor: COLORS.storm }]}
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        setLayout((l) => (l.width === width && l.height === height ? l : { width, height }));
+      }}
       onStartShouldSetResponder={shouldSetResponder}
       onMoveShouldSetResponder={shouldSetResponder}
       onResponderGrant={processTouches}
@@ -456,7 +472,7 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         })}
       </Svg>
 
-      <HUD run={w.run} player={w.player} weather={w.run.weather}
+      <HUD topInset={insets.top} run={w.run} player={w.player} weather={w.run.weather}
         bossActive={!!boss} bossHp={boss ? { current: boss.hull, max: boss.maxHull } : null} />
 
       {w.nearHarborIndex >= 0 && (
@@ -470,14 +486,14 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
           transparent to touches but the Joystick keeps its custom
           drag tracking via the root responder. The joystick visual
           itself is still passive; processTouches handles its math. */}
-      <View style={styles.controlsLeft} pointerEvents="box-none">
+      <View style={[styles.controlsLeft, { bottom: joyBottom }]} pointerEvents="box-none">
         <Joystick knob={knobOffset} />
       </View>
 
       {/* controlsRight = "box-none" so the container itself doesn't
           eat touches, but the Pressable children DO receive them.
           Each button calls the existing triggerAction or setFire. */}
-      <View style={styles.controlsRight} pointerEvents="box-none">
+      <View style={[styles.controlsRight, { bottom: fireBottom }]} pointerEvents="box-none">
         <View style={styles.smallBtnRow}>
           <Pressable
             style={[styles.smallBtn, autoFire && styles.smallBtnOn]}
@@ -505,7 +521,7 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         </Pressable>
       </View>
 
-      <View style={styles.pauseBtn} pointerEvents="box-none">
+      <View style={[styles.pauseBtn, { top: pauseTop }]} pointerEvents="box-none">
         <Pressable onPress={() => triggerAction('pause')} hitSlop={12}>
           <Text style={styles.pauseText}>{paused ? 'RESUME' : 'PAUSE'}</Text>
         </Pressable>

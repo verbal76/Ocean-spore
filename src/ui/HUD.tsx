@@ -3,21 +3,26 @@ import { COLORS } from '../colors';
 import { Run, PlayerShip } from '../game/types';
 import { SHIPS_BY_ID } from '../data/ships';
 
+// Space below the system status bar before the first HUD row.
+const HUD_TOP_PAD = 36;
+
 interface Props {
   run: Run;
   player: PlayerShip;
   weather: 'clear' | 'storm';
   bossActive: boolean;
   bossHp: { current: number; max: number } | null;
+  /** System status-bar/cutout height; the HUD starts below it. */
+  topInset?: number;
 }
 
-export function HUD({ run, player, weather, bossActive, bossHp }: Props) {
+export function HUD({ run, player, weather, bossActive, bossHp, topInset = 0 }: Props) {
   const shipName = SHIPS_BY_ID[player.classId]?.name ?? player.classId;
   const hullPct = Math.max(0, (player.hull / player.maxHull) * 100);
   const hullLow = hullPct < 30;
 
   return (
-    <View pointerEvents="none" style={styles.wrap}>
+    <View pointerEvents="none" style={[styles.wrap, { paddingTop: HUD_TOP_PAD + topInset }]}>
       <View style={styles.topRow}>
         <View style={styles.panel}>
           <Text style={styles.label}>SHIP</Text>
@@ -88,7 +93,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingTop: 36,
+    paddingTop: HUD_TOP_PAD,
     paddingHorizontal: 12,
   },
   topRow: {

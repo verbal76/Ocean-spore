@@ -39,9 +39,12 @@ on:
 permissions:
   contents: read
 
+# Let an in-progress APK build finish; a newer push waits as the single pending
+# run (older pending runs are superseded). Cancelling a 10-minute Gradle build
+# on every push throws away the only signal we have.
 concurrency:
   group: apk-build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   ci:
