@@ -20,7 +20,8 @@ export, then Gradle, and attaches `OceanSpore-v<ver>.apk` as a workflow
 artifact (14 days). Nothing is published automatically.
 
 To publish a GitHub Release: Actions -> APK Build -> Run workflow ->
-`publish = true`. The tag is `v<versionName>` and points at the built commit.
+`publish = true`. The release is marked **pre-release**; the tag is
+`v<versionName>` and points at the built commit.
 
 ## OTA updates (`eas-update.yml`)
 
@@ -40,9 +41,10 @@ commit keystores (`*.jks`, `*.keystore` are git-ignored).
 
 ## 16 KB page-size
 
-`scripts/check-16kb.py` checks every native library. It is report-only in CI
-while the project is on Expo SDK 52 / React Native 0.76 (which fails); set
-`ENFORCE_16KB: 'true'` in `android-build.yml` once the SDK upgrade lands.
+`scripts/check-16kb.py` checks every native library (ELF LOAD alignment and
+zip alignment). It is **blocking** in CI: the 64-bit ABIs must be fully
+16 KB-ready. The original SDK 52 build failed 13 of 14 libraries per ABI; the
+SDK 54 / RN 0.81 / NDK 27 build passes 13/13 on arm64-v8a and x86_64.
 
 ## Local checks
 
