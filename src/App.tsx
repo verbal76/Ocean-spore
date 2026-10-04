@@ -14,7 +14,8 @@ import {
   tryRepair, tryUpgrade, undock, World,
 } from './game/world';
 import { SHIPS_BY_ID } from './data/ships';
-import { loadSave, saveSave, SaveData } from './state/persistence';
+import { loadSave, saveSave } from './state/persistence';
+import { defaultSave, SAVE_SCHEMA_VERSION, SaveData } from './state/saveSchema';
 
 export default function App() {
   const [screen, setScreen] = useState<GameScreen>('splash');
@@ -28,12 +29,17 @@ export default function App() {
   const [, force] = useState(0);
   const lastRunRef = useRef<Run | null>(null);
   const [newUnlocks, setNewUnlocks] = useState<string[]>([]);
-  const loadedRef = useRef(false);
+  const loadStartedRef = useRef(false);
+  // True once the on-disk save has been read. Until then React state still
+  // holds defaults, so writing it would overwrite the player's real save.
+  const saveReadyRef = useRef(false);
+  const pendingOverridesRef = useRef<Partial<SaveData>>({});
 
   useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
+    if (loadStartedRef.current) return;
+    loadStartedRef.current = true;
     loadSave()
+      .catch(() => defaultSave())
       .then((s) => {
         setSelectedShip(s.lastShip);
         setUnlockedShips(s.unlockedShips);
@@ -41,11 +47,20 @@ export default function App() {
         setLifetimeKills(s.totalKills);
         setLifetimeParts(s.totalParts);
         setCaptainName(s.captainName || '');
-      })
-      .catch(() => {});
+        saveReadyRef.current = true;
+        // Replay anything the player changed before the load finished, on
+        // top of the loaded data (not on top of stale defaults).
+        const pending = pendingOverridesRef.current;
+        pendingOverridesRef.current = {};
+        if (Object.keys(pending).length > 0) saveSave({ ...s, ...pending });
+      });
   }, []);
 
   function persist(overrides: Partial<SaveData> = {}) {
+    if (!saveReadyRef.current) {
+      pendingOverridesRef.current = { ...pendingOverridesRef.current, ...overrides };
+      return;
+    }
     saveSave({
       unlockedShips,
       highScore,
@@ -53,13 +68,13 @@ export default function App() {
       totalParts: lifetimeParts,
       lastShip: selectedShip,
       captainName,
-      schemaVersion: 2,
+      schemaVersion: SAVE_SCHEMA_VERSION,
       ...overrides,
     });
   }
 
   function startRun() {
-    const w = createWorld(selectedShip, unlockedShips);
+    const w = createWorld(selectedShip, [...unlockedShips]);
     applyUpgrades(w);
     w.player.hull = w.player.maxHull;
     worldRef.current = w;

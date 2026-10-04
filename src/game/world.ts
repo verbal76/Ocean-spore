@@ -138,7 +138,7 @@ export function createWorld(shipClassId: string, unlocked: string[]): World {
         magnetLevel: 0,
         regenLevel: 0,
       },
-      unlockedShips: unlocked,
+      unlockedShips: [...unlocked],
       bossSpawned: false,
       nextBossAt: 100,
       weaponMode: 0,

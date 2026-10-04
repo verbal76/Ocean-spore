@@ -16,6 +16,7 @@ import { HUD } from '../ui/HUD';
 import { Joystick } from '../ui/Joystick';
 import { Run } from './types';
 import { cycleWeapon, dockAt, InputState, tick, World } from './world';
+import { flushSaves } from '../state/persistence';
 
 interface Props {
   initialWorld: World;
@@ -259,9 +260,10 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
 
   function onSaveQuit() {
     onQuitToMenu(worldRef.current);
-    setTimeout(() => {
+    // Exit only after the save has actually reached disk.
+    flushSaves().finally(() => {
       try { BackHandler.exitApp(); } catch { /* iOS / web no-op */ }
-    }, 80);
+    });
   }
 
   const w = worldRef.current;
