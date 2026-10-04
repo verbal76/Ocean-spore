@@ -9,6 +9,7 @@ import { GameOverScreen } from './ui/GameOverScreen';
 import { ShipyardScreen } from './ui/ShipyardScreen';
 import { ShipSelectScreen } from './ui/ShipSelectScreen';
 import { BrandSplash } from './ui/BrandSplash';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 import { SplashScreen } from './ui/SplashScreen';
 import { GameScreen, Run, UpgradeKey } from './game/types';
 import {
@@ -20,16 +21,21 @@ import { loadSave, saveSave } from './state/persistence';
 import { defaultSave, SAVE_SCHEMA_VERSION, SaveData } from './state/saveSchema';
 
 export default function App() {
+  // After a recovered crash the app remounts straight to the title: the studio
+  // card is only for cold launches, never a recovery path.
+  const [recoveries, setRecoveries] = useState(0);
   return (
     <SafeAreaProvider>
-      <AppInner />
+      <ErrorBoundary onReset={() => setRecoveries((n) => n + 1)}>
+        <AppInner key={recoveries} startScreen={recoveries === 0 ? 'brand' : 'splash'} />
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
 
-function AppInner() {
+function AppInner({ startScreen }: { startScreen: GameScreen }) {
   const insets = useSafeAreaInsets();
-  const [screen, setScreen] = useState<GameScreen>('brand');
+  const [screen, setScreen] = useState<GameScreen>(startScreen);
   const [selectedShip, setSelectedShip] = useState<string>('raft');
   const [unlockedShips, setUnlockedShips] = useState<string[]>(['raft']);
   const [highScore, setHighScore] = useState<number>(0);

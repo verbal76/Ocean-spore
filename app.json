@@ -9,10 +9,6 @@
     "scheme": "oceanspore",
     "newArchEnabled": false,
     "runtimeVersion": "2.0.0",
-    "splash": {
-      "resizeMode": "contain",
-      "backgroundColor": "#03101c"
-    },
     "updates": {
       "url": "https://u.expo.dev/0cc1bf9c-b6c8-4ec7-bf71-4f7d6bb5b5d3",
       "checkAutomatically": "ON_LOAD",
@@ -43,6 +39,14 @@
       "bundler": "metro"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#03101c",
+          "image": "./assets/branding/splash-blank.png",
+          "imageWidth": 200
+        }
+      ],
       "expo-updates",
       "./plugins/with-no-compress-glb"
     ],

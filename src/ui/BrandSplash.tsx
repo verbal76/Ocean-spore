@@ -10,6 +10,8 @@ import { COLORS } from '../colors';
 // initialisation (save loading happens in parallel). Tap to skip.
 
 export const BRAND_SPLASH_TIMING = { fadeInMs: 450, holdMs: 1100, fadeOutMs: 350 } as const;
+export const BRAND_SPLASH_TOTAL_MS =
+  BRAND_SPLASH_TIMING.fadeInMs + BRAND_SPLASH_TIMING.holdMs + BRAND_SPLASH_TIMING.fadeOutMs;
 
 const LOGO = require('../../assets/branding/hot-attic-logo.png');
 const LOGO_ASPECT = 667 / 1024;
@@ -44,7 +46,10 @@ export function BrandSplash({ onDone }: Props) {
       }),
     ]);
     anim.start(({ finished }) => { if (finished) finish(); });
-    return () => anim.stop();
+    // Failsafe: if the animation driver never reports completion the player
+    // must still reach the game, so finish on a plain timer as well.
+    const failsafe = setTimeout(finish, BRAND_SPLASH_TOTAL_MS + 1000);
+    return () => { anim.stop(); clearTimeout(failsafe); };
   }, [progress]);
 
   const logoWidth = Math.min(width * 0.86, 520);
