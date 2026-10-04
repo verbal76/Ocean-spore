@@ -44,14 +44,6 @@
     },
     "plugins": [
       "expo-updates",
-      [
-        "expo-build-properties",
-        {
-          "android": {
-            "kotlinVersion": "1.9.25"
-          }
-        }
-      ],
       "./plugins/with-no-compress-glb"
     ],
     "extra": {
@@ -59,6 +51,11 @@
         "projectId": "0cc1bf9c-b6c8-4ec7-bf71-4f7d6bb5b5d3"
       }
     },
-    "icon": "./assets/icons/icon.png"
+    "icon": "./assets/icons/icon.png",
+    "backgroundColor": "#03101c",
+    "androidStatusBar": {
+      "backgroundColor": "#03101c",
+      "barStyle": "light-content"
+    }
   }
 }

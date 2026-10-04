@@ -10,7 +10,7 @@
 //      pipeline entirely, which gave us black ships in #27.
 import './_polyfills';
 import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 // @ts-ignore - upng-js has no type definitions
 import UPNG from 'upng-js';
 import * as THREE from 'three';

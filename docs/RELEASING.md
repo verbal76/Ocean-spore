@@ -46,6 +46,6 @@ while the project is on Expo SDK 52 / React Native 0.76 (which fails); set
 
 ## Local checks
 
-    npm install --legacy-peer-deps
+    npm ci
     npm run typecheck
     npm test

@@ -6,5 +6,5 @@ Expo / React Native (TypeScript) with three.js rendering. See
 `docs/RELEASING.md` for versioning, APK naming and release steps and
 `docs/RECOVERY.md` for how the original game was recovered.
 
-    npm install --legacy-peer-deps
+    npm ci
     npm run typecheck && npm test

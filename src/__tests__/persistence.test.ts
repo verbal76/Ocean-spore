@@ -3,7 +3,7 @@
 const mockFiles = new Map<string, string>();
 let mockFailNextWrite = false;
 
-jest.mock('expo-file-system', () => ({
+jest.mock('expo-file-system/legacy', () => ({
   documentDirectory: 'file:///doc/',
   getInfoAsync: async (p: string) => ({ exists: mockFiles.has(p) }),
   readAsStringAsync: async (p: string) => {
