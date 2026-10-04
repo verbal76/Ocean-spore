@@ -47,5 +47,8 @@
     "transform": {
       "^.+\\.(t|j)sx?$": "babel-jest"
     }
+  },
+  "oceanSpore": {
+    "build": 40
   }
 }

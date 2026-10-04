@@ -1,46 +1,48 @@
 // Single source of truth for Ocean Spore's version identity.
 //
-//   package.json "version"  -> major.minor line, e.g. "1.1.0" => "1.1"
-//   build number            -> CI run number (GITHUB_RUN_NUMBER / BUILD_NUMBER)
+//   package.json  "oceanSpore": { "build": N }   <- the one number you bump
 //
-//   versionName = "<major>.<minor>.<build>"   e.g. 1.1.40
-//   versionCode = <build>                     monotonic; Android upgrades need it to rise
-//   APK file    = OceanSpore-v<versionName>.apk
+//   versionCode = N     strictly increasing; Android upgrades require it to rise
+//   versionName = "N"   what Settings and the About screen show
+//   APK file    = OceanSpore-vN.apk
 //
-// Local builds (no build number) get "<major>.<minor>.0-dev" / versionCode 1.
-// Used by app.config.js, scripts/write-build-info.mjs and the CI workflows.
+// History: GitHub Releases build-5 .. build-39 (the last shipped to a device
+// was build-39, versionCode 1 -- every historical build reported versionCode 1).
+// The first resurrection candidate is therefore 40. Bump N deliberately for
+// every APK that reaches the owner; CI run numbers do NOT drive the version
+// (they also count failed, cancelled and test runs).
+//
+// BUILD_NUMBER in the environment overrides the committed value (local
+// experiments only; CI does not set it).
 
 const GAME_FILE_NAME = 'OceanSpore';
+const LAST_HISTORICAL_BUILD = 39;
 
 function parseBuildNumber(raw) {
-  if (raw === undefined || raw === null || raw === '') return null;
   const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1 || n > 2100000000) {
+  if (raw === undefined || raw === null || raw === '' || !Number.isInteger(n) || n < 1 || n > 2100000000) {
     throw new Error(`Invalid build number: ${JSON.stringify(raw)}`);
   }
   return n;
 }
 
-function resolveVersion(baseVersion, rawBuildNumber) {
-  const m = /^(\d+)\.(\d+)(?:\.\d+)?$/.exec(String(baseVersion));
-  if (!m) throw new Error(`package.json version must be MAJOR.MINOR[.PATCH], got ${baseVersion}`);
-  const line = `${m[1]}.${m[2]}`;
+function resolveVersion(rawBuildNumber) {
   const build = parseBuildNumber(rawBuildNumber);
-  const versionName = build === null ? `${line}.0-dev` : `${line}.${build}`;
   return {
-    versionName,
-    versionCode: build === null ? 1 : build,
+    versionName: String(build),
+    versionCode: build,
     buildNumber: build,
-    apkFileName: `${GAME_FILE_NAME}-v${versionName}.apk`,
+    apkFileName: `${GAME_FILE_NAME}-v${build}.apk`,
   };
 }
 
 function currentVersion(env = process.env) {
   const pkg = require('../package.json');
-  return resolveVersion(pkg.version, env.BUILD_NUMBER || env.GITHUB_RUN_NUMBER);
+  const raw = env.BUILD_NUMBER || (pkg.oceanSpore && pkg.oceanSpore.build);
+  return resolveVersion(raw);
 }
 
-module.exports = { GAME_FILE_NAME, parseBuildNumber, resolveVersion, currentVersion };
+module.exports = { GAME_FILE_NAME, LAST_HISTORICAL_BUILD, parseBuildNumber, resolveVersion, currentVersion };
 
 // `node scripts/version.js apk-name|version-name|version-code`, for CI steps.
 if (require.main === module) {

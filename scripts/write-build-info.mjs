@@ -16,7 +16,7 @@ const commit       = git('rev-parse HEAD', 'unknown');
 const commitShort  = git('rev-parse --short HEAD', 'unknown');
 const dirty        = git('status --porcelain') !== '';
 const builtAt      = new Date().toISOString();
-const buildNumber  = process.env.BUILD_NUMBER || process.env.GITHUB_RUN_NUMBER || 'local';
+const buildNumber  = String(currentVersion().versionCode);
 
 const ver = currentVersion();
 const appVersion         = ver.versionName;

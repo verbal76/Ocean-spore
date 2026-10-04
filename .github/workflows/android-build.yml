@@ -56,7 +56,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      BUILD_NUMBER: ${{ github.run_number }}
       EXPO_NO_TELEMETRY: '1'
     outputs:
       apk-name: ${{ steps.apk.outputs.name }}

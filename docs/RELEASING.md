@@ -4,11 +4,11 @@
 
 | | |
 |---|---|
-| `package.json` `version` | sets the **major.minor line** (`1.1.0` => `1.1`) |
-| versionName | `<major>.<minor>.<build>`, e.g. `1.1.42` |
-| versionCode | the build number (CI run number), strictly increasing |
-| APK file | `OceanSpore-v<versionName>.apk`, e.g. `OceanSpore-v1.1.42.apk` |
-| Local builds | `1.1.0-dev`, versionCode 1 |
+| `package.json` `oceanSpore.build` | the one number you bump (currently 40) |
+| versionName | the build number as text, e.g. `40` |
+| versionCode | the build number, strictly increasing |
+| APK file | `OceanSpore-v<build>.apk`, e.g. `OceanSpore-v40.apk` |
+| Derived from | history: releases build-5..build-39 (last device build 39, versionCode 1) so the first candidate is 40. CI run numbers do NOT drive it (they count failed/test runs). Bump deliberately for every APK that reaches the owner |
 
 CI verifies the built APK's package id, versionCode and versionName match
 before uploading it, and records the file's SHA-256 in the run summary.
