@@ -282,26 +282,51 @@ function dropPartsPickup(world: World, pos: Vec2, amount: number) {
   });
 }
 
-function spawnEnemyAtEdge(world: World) {
+/** Enemies and bosses must start at least this far from the player (the screen is ~460 dp from centre). */
+export const SPAWN_MIN_PLAYER_DIST = 480;
+export const BOSS_SPAWN_MIN_PLAYER_DIST = 400;
+
+/**
+ * A spawn point on a ring around the camera, inside the world, far enough from
+ * the player and (optionally) clear of other enemies.
+ *
+ * Candidates outside the world are REJECTED, not clamped inward: clamping a
+ * ring point at an edge or corner dropped enemies 25-75 dp from the player
+ * (measured), an unavoidable hit. If no candidate satisfies every rule the
+ * farthest in-world one is used.
+ */
+export function pickSpawnPoint(
+  world: World, ring: number, margin: number, minPlayerDist: number, separation: number,
+): Vec2 {
   const cam = world.camera;
-  const r = 620;
-  const minDist = 120;
-  let pos: Vec2 = { x: 0, y: 0 };
-  for (let attempt = 0; attempt < 4; attempt++) {
+  const p = world.player.pos;
+  let best: Vec2 | null = null;
+  let bestDist = -1;
+  for (let attempt = 0; attempt < 24; attempt++) {
     const a = Math.random() * Math.PI * 2;
-    pos = {
-      x: clamp(cam.x + Math.cos(a) * r, 50, WORLD_WIDTH - 50),
-      y: clamp(cam.y + Math.sin(a) * r, 50, WORLD_HEIGHT - 50),
-    };
-    let tooClose = false;
-    for (const e of world.enemies) {
-      if (Math.hypot(pos.x - e.pos.x, pos.y - e.pos.y) < minDist) {
-        tooClose = true;
-        break;
+    const x = cam.x + Math.cos(a) * ring;
+    const y = cam.y + Math.sin(a) * ring;
+    if (x < margin || x > WORLD_WIDTH - margin || y < margin || y > WORLD_HEIGHT - margin) continue;
+    const dp = Math.hypot(x - p.x, y - p.y);
+    let clear = true;
+    if (separation > 0) {
+      for (const e of world.enemies) {
+        if (Math.hypot(x - e.pos.x, y - e.pos.y) < separation) { clear = false; break; }
       }
     }
-    if (!tooClose) break;
+    if (dp >= minPlayerDist && clear) return { x, y };
+    if (dp > bestDist) { bestDist = dp; best = { x, y }; }
   }
+  if (best) return best;
+  // Cannot happen on this map size; stay safe anyway: the in-world corner farthest from the player.
+  return {
+    x: p.x < WORLD_WIDTH / 2 ? WORLD_WIDTH - margin : margin,
+    y: p.y < WORLD_HEIGHT / 2 ? WORLD_HEIGHT - margin : margin,
+  };
+}
+
+function spawnEnemyAtEdge(world: World) {
+  const pos = pickSpawnPoint(world, 620, 50, SPAWN_MIN_PLAYER_DIST, 120);
 
   const k = world.run.kills;
   const pool: typeof ENEMIES = [ENEMIES[0]];
@@ -342,15 +367,10 @@ function spawnEnemyAtEdge(world: World) {
 }
 
 function spawnBoss(world: World) {
-  const cam = world.camera;
-  const a = Math.random() * Math.PI * 2;
   world.enemies.push({
     id: world.enemyIdCounter++,
     archetype: BOSS.id,
-    pos: {
-      x: clamp(cam.x + Math.cos(a) * 520, 90, WORLD_WIDTH - 90),
-      y: clamp(cam.y + Math.sin(a) * 520, 90, WORLD_HEIGHT - 90),
-    },
+    pos: pickSpawnPoint(world, 520, 90, BOSS_SPAWN_MIN_PLAYER_DIST, 0),
     vel: { x: 0, y: 0 },
     angle: 0,
     hull: BOSS.hull,
