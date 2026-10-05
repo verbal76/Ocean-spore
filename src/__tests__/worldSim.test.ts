@@ -1,4 +1,4 @@
-import { BOSS_CONTACT_COOLDOWN, createWorld, tick, World, InputState } from '../game/world';
+import { BOSS_CONTACT_COOLDOWN, createWorld, MAX_PARTICLES, tick, World, InputState } from '../game/world';
 import { BOSS, ENEMIES } from '../data/enemies';
 import { EnemyShip } from '../game/types';
 
@@ -109,5 +109,19 @@ describe('simulation time, not wall-clock time', () => {
     w.dockedHarborIndex = 0;
     for (let i = 0; i < 600; i++) tick(w, DT, IDLE);
     expect(w.run.activeSeconds).toBeCloseTo(1, 1);
+  });
+});
+
+describe('bounded effects', () => {
+  test('a mass kill cannot flood the screen with particles', () => {
+    const w = newWorld();
+    for (let i = 0; i < 120; i++) {
+      const e = enemy(w, { hull: 1, pos: { x: w.player.pos.x + 200 + i * 3, y: w.player.pos.y + 200 } });
+      w.bullets.push({ id: w.bulletIdCounter++, pos: { ...e.pos }, vel: { x: 0, y: 0 }, life: 1, damage: 5, owner: 'player', color: '#fff', size: 3 });
+    }
+    tick(w, DT, IDLE);
+    expect(w.run.kills).toBeGreaterThan(50);                   // the kills really happened
+    expect(w.particles.length).toBeLessThanOrEqual(MAX_PARTICLES);
+    expect(w.particles.length).toBeGreaterThan(0);
   });
 });

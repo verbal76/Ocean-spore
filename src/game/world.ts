@@ -254,8 +254,11 @@ export function cycleWeapon(world: World) {
   spawnParticles(world, { x: bowX, y: bowY }, color, 12, 160);
 }
 
+/** Hard ceiling: particles are cosmetic, and every one is a React/SVG node on a phone. */
+export const MAX_PARTICLES = 400;
+
 function spawnParticles(world: World, pos: Vec2, color: string, count: number, speed = 120) {
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < count && world.particles.length < MAX_PARTICLES; i++) {
     const a = Math.random() * Math.PI * 2;
     const s = speed * (0.4 + Math.random() * 0.9);
     world.particles.push({
