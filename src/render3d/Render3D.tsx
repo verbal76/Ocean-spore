@@ -1,18 +1,29 @@
 import { GLView } from 'expo-gl';
 import { useEffect, useRef } from 'react';
-import { Dimensions, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import * as THREE from 'three';
 import { BOSS, ENEMIES_BY_ID } from '../data/enemies';
 import { SHIPS_BY_ID } from '../data/ships';
 import { World } from '../game/world';
-import { GLB_ASSETS } from './assets';
-import { loadModel } from './assetLoader';
-import { loadColormapSampler, colormapDiagSample, ColormapSampler } from './colormap';
 import { glbLoadStatus } from './loadStatus';
+import { realTemplateDeps } from './templateDeps';
+import { applySharedMaterials, loadTemplates, releaseGpuResources, TemplateSet } from './templates';
 
 interface Props {
   worldRef: { current: World };
+  /** Measured size of the game view (dp); the camera follows it. */
+  width: number;
+  height: number;
+  /** Simulation paused: keep the last frame alive at a low rate. */
+  paused?: boolean;
+  /** Not visible at all (harbor screen on top): draw nothing. */
+  hidden?: boolean;
+  /** Called once when models are loaded and a frame has been drawn (or init failed). */
+  onReady?: () => void;
 }
+
+/** While paused, redraw only every Nth frame (~5 Hz at 60 fps). */
+const PAUSED_FRAME_DIVISOR = 12;
 
 function makeRenderer(gl: any): THREE.WebGLRenderer {
   const fakeCanvas: any = {
@@ -38,95 +49,40 @@ function makeRenderer(gl: any): THREE.WebGLRenderer {
   return renderer;
 }
 
-function forceBasicMaterials(root: THREE.Object3D, fallbackColor: number, useVertexColor: boolean) {
-  root.traverse((obj: any) => {
-    if (obj.isMesh) {
-      obj.material = new THREE.MeshBasicMaterial({
-        color: useVertexColor ? 0xffffff : new THREE.Color(fallbackColor),
-        vertexColors: useVertexColor,
-        side: THREE.DoubleSide,
-        transparent: false,
-        depthWrite: true,
-        depthTest: true,
-      });
-      obj.visible = true;
-      obj.frustumCulled = false;
-    }
-  });
+function hexToInt(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  return m ? parseInt(m[1], 16) : 0xffffff;
 }
 
-function bakeVertexColors(obj: any, sampler: ColormapSampler): boolean {
-  const geo = obj.geometry as THREE.BufferGeometry | undefined;
-  if (!geo) return false;
-  const uvAttr = geo.attributes.uv;
-  if (!uvAttr) return false;
-  const count = uvAttr.count;
-  const colors = new Float32Array(count * 3);
-  for (let i = 0; i < count; i++) {
-    const u = uvAttr.getX(i);
-    const v = uvAttr.getY(i);
-    const [r, g, b] = sampler(u, v);
-    colors[i * 3] = r;
-    colors[i * 3 + 1] = g;
-    colors[i * 3 + 2] = b;
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return true;
-}
+// Per-model bow-axis offset. The default formula (-angle + PI/2) assumes the
+// bow lies along local +Z and maps it to world +X at angle=0. All bundled GLBs
+// follow that; this empty map is the hook for any future model that does not.
+const MODEL_YAW_OFFSET: Record<string, number> = {};
 
-function bakeGeometryTransforms(inner: THREE.Object3D, targetSize: number) {
-  inner.updateMatrixWorld(true);
-  type Captured = { geometry: THREE.BufferGeometry; material: any };
-  const captured: Captured[] = [];
-  inner.traverse((obj: any) => {
-    if (obj.isMesh && obj.geometry) {
-      const g = obj.geometry.clone();
-      g.applyMatrix4(obj.matrixWorld);
-      captured.push({ geometry: g, material: obj.material });
-    }
-  });
-
-  while (inner.children.length > 0) {
-    inner.remove(inner.children[0]);
-  }
-  for (const c of captured) {
-    const m = new THREE.Mesh(c.geometry, c.material);
-    m.position.set(0, 0, 0);
-    m.rotation.set(0, 0, 0);
-    m.scale.set(1, 1, 1);
-    inner.add(m);
-  }
-
-  inner.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(inner);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const scale = maxDim > 0.001 ? targetSize / maxDim : 1;
-
-  const mat = new THREE.Matrix4()
-    .makeTranslation(-center.x * scale, -center.y * scale, -center.z * scale)
-    .multiply(new THREE.Matrix4().makeScale(scale, scale, scale));
-
-  inner.traverse((obj: any) => {
-    if (obj.isMesh && obj.geometry) {
-      obj.geometry.applyMatrix4(mat);
-      obj.geometry.computeBoundingBox();
-      obj.geometry.computeBoundingSphere();
-    }
-  });
-}
-
-export function Render3D({ worldRef }: Props) {
-  const { width: sw, height: sh } = Dimensions.get('window');
-  const startedRef = useRef(false);
+export function Render3D({ worldRef, width, height, paused = false, hidden = false, onReady }: Props) {
   const mountedRef = useRef(true);
+  const startedRef = useRef(false);
+  const rafRef = useRef(0);
+  const teardownRef = useRef<(() => void) | null>(null);
+  // Props that change while the GL loop is running are read through refs so
+  // the loop never calls a stale closure.
+  const sizeRef = useRef({ width, height });
+  sizeRef.current = { width, height };
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+  const hiddenRef = useRef(hidden);
+  hiddenRef.current = hidden;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       startedRef.current = false;
+      cancelAnimationFrame(rafRef.current);
+      teardownRef.current?.();
+      teardownRef.current = null;
     };
   }, []);
 
@@ -134,10 +90,6 @@ export function Render3D({ worldRef }: Props) {
     if (startedRef.current) return;
     startedRef.current = true;
 
-    glbLoadStatus.total = Object.keys(GLB_ASSETS).length;
-    glbLoadStatus.loaded = 0;
-    glbLoadStatus.failed = 0;
-    glbLoadStatus.firstError = '';
     glbLoadStatus.renderError = '';
     glbLoadStatus.renderStack = '';
     glbLoadStatus.renderFrames = 0;
@@ -145,17 +97,37 @@ export function Render3D({ worldRef }: Props) {
     glbLoadStatus.drawBufW = gl && gl.drawingBufferWidth ? gl.drawingBufferWidth : 0;
     glbLoadStatus.drawBufH = gl && gl.drawingBufferHeight ? gl.drawingBufferHeight : 0;
     glbLoadStatus.sceneChildren = 0;
-    glbLoadStatus.colormapDiag = '';
+
+    let readyFired = false;
+    const fireReady = () => {
+      if (readyFired) return;
+      readyFired = true;
+      onReadyRef.current?.();
+    };
+
+    let renderer: THREE.WebGLRenderer | null = null;
+    let templateSet: TemplateSet | null = null;
+    const scene = new THREE.Scene();
+    const active = new Map<string, THREE.Object3D>();
+    let torn = false;
+    const teardown = () => {
+      if (torn) return;
+      torn = true;
+      for (const mesh of active.values()) scene.remove(mesh);
+      active.clear();
+      releaseGpuResources(templateSet);
+      renderer?.dispose();
+      renderer = null;
+    };
+    teardownRef.current = teardown;
 
     try {
-      const renderer = makeRenderer(gl);
-      renderer.setClearColor(0x062238, 1);
+      const r = makeRenderer(gl);
+      renderer = r;
+      r.setClearColor(0x062238, 1);
 
-      const scene = new THREE.Scene();
-
-      const camera = new THREE.OrthographicCamera(
-        -sw / 2, sw / 2, sh / 2, -sh / 2, 0.1, 4000
-      );
+      const { width: w0, height: h0 } = sizeRef.current;
+      const camera = new THREE.OrthographicCamera(-w0 / 2, w0 / 2, h0 / 2, -h0 / 2, 0.1, 4000);
       camera.position.set(0, 800, 0);
       camera.up.set(0, 0, -1);
       camera.lookAt(0, 0, 0);
@@ -165,56 +137,22 @@ export function Render3D({ worldRef }: Props) {
       dir.position.set(50, 200, 50);
       scene.add(dir);
 
-      const templates: Record<string, THREE.Object3D> = {};
-      const TEMPLATE_BASE_SIZE = 50;
-
-      const sampler = await loadColormapSampler();
-      glbLoadStatus.colormapDiag = await colormapDiagSample();
-
-      await Promise.all(
-        Object.entries(GLB_ASSETS).map(async ([name, mod]) => {
-          try {
-            const inner = await loadModel(mod);
-
-            bakeGeometryTransforms(inner, TEMPLATE_BASE_SIZE);
-
-            if (sampler) {
-              inner.traverse((obj: any) => {
-                if (obj.isMesh) bakeVertexColors(obj, sampler);
-              });
-            }
-
-            templates[name] = inner;
-            glbLoadStatus.loaded += 1;
-          } catch (err: any) {
-            glbLoadStatus.failed += 1;
-            const msg = err && err.message ? String(err.message) : String(err);
-            if (!glbLoadStatus.firstError) {
-              glbLoadStatus.firstError = `${name}: ${msg.slice(0, 60)}`;
-            }
-            console.warn('[Render3D] Failed to load GLB', name, err);
-          }
-        })
-      );
-
-      const haveColors = !!sampler;
-      const active = new Map<string, THREE.Object3D>();
+      // Cached across mounts: only the first run pays for parsing and baking.
+      templateSet = await loadTemplates(realTemplateDeps);
+      if (!mountedRef.current || torn) { teardown(); return; }
+      const { templates, haveColors } = templateSet;
       const fallbackGeo = new THREE.SphereGeometry(15, 8, 6);
+      const fallbackMat = new THREE.MeshBasicMaterial({ color: 0xff3030 });
 
-      // Per-model bow-axis offset. The default formula
-      // (-angle + PI/2) assumes bow along local +Z and maps it to
-      // world +X at angle=0. An earlier pass added overrides for
-      // boat-row-small/large to 0 on a (mistaken) finding that their
-      // bow was along local +X - playtest showed the raft rendered
-      // 90 degrees clockwise of travel direction, so those GLBs are
-      // actually bow-+Z like the rest. Empty map = all models use
-      // the default; left in place as the hook for any future GLB
-      // that genuinely has a different forward axis.
-      const MODEL_YAW_OFFSET: Record<string, number> = {};
+      const keep = new Set<string>();
+      let lastZoom = NaN;
+      let lastW = w0;
+      let lastH = h0;
+      let frame = 0;
 
       function place(
         key: string, modelName: string, x: number, y: number,
-        angle: number, worldSize: number, tintColor: number
+        angle: number, worldSize: number, tint: string,
       ) {
         let mesh = active.get(key);
         if (mesh && (mesh as any).userData?.modelName !== modelName) {
@@ -225,13 +163,10 @@ export function Render3D({ worldRef }: Props) {
         if (!mesh) {
           const tpl = templates[modelName];
           if (tpl) {
-            mesh = tpl.clone(true);
-            forceBasicMaterials(mesh, tintColor, haveColors);
+            mesh = tpl.clone(true);      // shares geometry; materials swapped for shared ones
+            applySharedMaterials(mesh, haveColors ? 0xffffff : hexToInt(tint), haveColors);
           } else {
-            mesh = new THREE.Mesh(
-              fallbackGeo,
-              new THREE.MeshBasicMaterial({ color: 0xff3030 })
-            );
+            mesh = new THREE.Mesh(fallbackGeo, fallbackMat);
             mesh.frustumCulled = false;
           }
           (mesh as any).userData = { modelName };
@@ -240,92 +175,77 @@ export function Render3D({ worldRef }: Props) {
           active.set(key, mesh);
         }
         mesh.position.set(x, 0, y);
-        const yawOffset = MODEL_YAW_OFFSET[modelName] ?? Math.PI / 2;
-        mesh.rotation.y = -angle + yawOffset;
+        mesh.rotation.y = -angle + (MODEL_YAW_OFFSET[modelName] ?? Math.PI / 2);
         mesh.scale.setScalar(worldSize / 15);
       }
 
-      function hexToInt(hex: string): number {
-        const m = /^#?([0-9a-f]{6})$/i.exec(hex);
-        return m ? parseInt(m[1], 16) : 0xffffff;
-      }
+      const loop = () => {
+        if (!mountedRef.current || torn) return;
+        rafRef.current = requestAnimationFrame(loop);
 
-      function reap(keepKeys: Set<string>) {
-        for (const [key, mesh] of active) {
-          if (!keepKeys.has(key)) {
-            scene.remove(mesh);
-            active.delete(key);
-          }
-        }
-      }
+        if (hiddenRef.current) return;
+        if (pausedRef.current && frame++ % PAUSED_FRAME_DIVISOR !== 0) return;
 
-      function render() {
-        if (!mountedRef.current) return;
         const w = worldRef.current;
-        if (!w) {
-          requestAnimationFrame(render);
-          return;
-        }
-
+        if (!w) return;
         try {
           camera.position.x = w.camera.x;
           camera.position.z = w.camera.y;
           camera.lookAt(w.camera.x, 0, w.camera.y);
-          camera.up.set(0, 0, -1);
 
           const z = w.cameraZoom || 1;
-          camera.left = -sw / 2 / z;
-          camera.right = sw / 2 / z;
-          camera.top = sh / 2 / z;
-          camera.bottom = -sh / 2 / z;
-          camera.updateProjectionMatrix();
-
-          const keep = new Set<string>();
-
-          const ps = SHIPS_BY_ID[w.player.classId];
-          if (ps) {
-            place('player', ps.model, w.player.pos.x, w.player.pos.y,
-              w.player.angle, w.player.size, hexToInt(ps.color));
-            keep.add('player');
+          const { width: sw, height: sh } = sizeRef.current;
+          if (z !== lastZoom || sw !== lastW || sh !== lastH) {
+            lastZoom = z; lastW = sw; lastH = sh;
+            camera.left = -sw / 2 / z;
+            camera.right = sw / 2 / z;
+            camera.top = sh / 2 / z;
+            camera.bottom = -sh / 2 / z;
+            camera.updateProjectionMatrix();
           }
 
+          keep.clear();
+          const ps = SHIPS_BY_ID[w.player.classId];
+          if (ps) {
+            place('player', ps.model, w.player.pos.x, w.player.pos.y, w.player.angle, w.player.size, ps.color);
+            keep.add('player');
+          }
           for (let i = 0; i < w.enemies.length; i++) {
             const e = w.enemies[i];
             const arch = e.isBoss ? BOSS : ENEMIES_BY_ID[e.archetype];
             if (!arch?.model) continue;
             const key = 'e' + e.id;
-            place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, hexToInt(e.color));
+            place(key, arch.model, e.pos.x, e.pos.y, e.angle, e.size, e.color);
             keep.add(key);
           }
-
-          reap(keep);
+          for (const [key, mesh] of active) {
+            if (!keep.has(key)) { scene.remove(mesh); active.delete(key); }
+          }
 
           glbLoadStatus.sceneChildren = scene.children.length;
-
-          renderer.render(scene, camera);
+          r.render(scene, camera);
           gl.endFrameEXP();
           glbLoadStatus.renderFrames += 1;
+          fireReady();
         } catch (err: any) {
+          // Log the first failure only; a failing frame repeats every frame.
           if (!glbLoadStatus.renderError) {
             const msg = err && err.message ? String(err.message) : String(err);
             glbLoadStatus.renderError = msg.slice(0, 80);
-            const stack = err && err.stack ? String(err.stack) : '';
-            glbLoadStatus.renderStack = stack.slice(0, 240);
+            glbLoadStatus.renderStack = (err && err.stack ? String(err.stack) : '').slice(0, 240);
+            console.warn('[Render3D] frame error', err);
           }
-          console.warn('[Render3D] frame error', err);
+          fireReady();                      // never leave the game waiting on a broken renderer
         }
-        requestAnimationFrame(render);
-      }
-
-      render();
+      };
+      rafRef.current = requestAnimationFrame(loop);
     } catch (err: any) {
       const msg = err && err.message ? String(err.message) : String(err);
       glbLoadStatus.initError = msg.slice(0, 80);
       console.warn('[Render3D] init error', err);
+      fireReady();
     }
   }
 
-  return (
-    <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />
-  );
+  return <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />;
 }

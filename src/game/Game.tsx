@@ -23,10 +23,14 @@ import { flushSaves } from '../state/persistence';
 
 interface Props {
   initialWorld: World;
+  /** The harbor screen is open on top of this (still mounted) game. */
+  docked: boolean;
   onDocked: (world: World, harborIdx: number) => void;
   onDied: (run: Run) => void;
   onQuitToMenu: (world: World) => void;
 }
+
+const RENDER_READY_FAILSAFE_MS = 8000;
 
 const SHIP_POLY = '1.0,0 -0.55,-0.55 -0.30,0 -0.55,0.55';
 const ENEMY_POLY = '0.9,0 -0.85,-0.6 -0.40,0 -0.85,0.6';
@@ -46,7 +50,7 @@ function weaponModeColor(mode: number): string {
   return '#22d3ee';                  // SINGLE: cyan
 }
 
-export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
+export function Game({ initialWorld, docked, onDocked, onDied, onQuitToMenu }: Props) {
   const worldRef = useRef<World>(initialWorld);
   // Long-lived effects (game loop, app-state/back handlers) must call the
   // latest callbacks, not the ones from the render they were created in.
@@ -57,6 +61,24 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   const [autoFire, setAutoFire] = useState(true);
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
+
+  // The sim waits for the first drawn frame so the player never plays against
+  // an empty sea while models load. A failsafe releases it if the renderer
+  // never reports in (broken GL), so the game can't be stranded.
+  const [renderReady, setRenderReady] = useState(!RENDER_3D);
+  const readyRef = useRef(!RENDER_3D);
+  readyRef.current = renderReady;
+  const markReady = () => setRenderReady(true);
+  useEffect(() => {
+    if (renderReady) return;
+    const id = setTimeout(() => setRenderReady(true), RENDER_READY_FAILSAFE_MS);
+    return () => clearTimeout(id);
+  }, [renderReady]);
+  // Android can destroy the GL surface while the app is in the background and
+  // three.js is never told; a fresh GLView (cheap: models are cached) after
+  // returning to the foreground avoids a black or frozen scene.
+  const [glEpoch, setGlEpoch] = useState(0);
+  const wasBackgroundedRef = useRef(false);
 
   const [knobOffset, setKnobOffset] = useState({ x: 0, y: 0 });
   const [firePressed, setFirePressed] = useState(false);
@@ -90,7 +112,7 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
       const now = performance.now();
       const frameDt = (now - last) / 1000;
       last = now;
-      if (!pausedRef.current) {
+      if (!pausedRef.current && readyRef.current) {
         const w = worldRef.current;
         const res = stepFixed(w, inputRef.current, frameDt, clock);
         if (res.died) { onDiedRef.current(w.run); return; }
@@ -106,11 +128,25 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
     return () => { mounted = false; cancelAnimationFrame(raf); };
   }, []);
 
+  // Opening the harbor pauses (done at the tap); leaving it resumes.
+  const wasDockedRef = useRef(false);
+  useEffect(() => {
+    if (wasDockedRef.current && !docked) setPausedStateRef.current(false);
+    wasDockedRef.current = docked;
+  }, [docked]);
+
   // Auto-pause when the app is backgrounded and when Android Back is pressed,
   // instead of the sim running on (or the app closing) behind the player.
   useEffect(() => {
     const appSub = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') setPausedStateRef.current(true);
+      if (state !== 'active') {
+        wasBackgroundedRef.current = true;
+        setPausedStateRef.current(true);
+      } else if (wasBackgroundedRef.current) {
+        wasBackgroundedRef.current = false;
+        setRenderReady(false);
+        setGlEpoch((e) => e + 1);
+      }
     });
     const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
       setPausedStateRef.current(!pausedRef.current);
@@ -241,7 +277,17 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
       onResponderRelease={onTouches}
       onResponderTerminate={onTouchesCancelled}
     >
-      {RENDER_3D && <Render3D worldRef={worldRef} />}
+      {RENDER_3D && (
+        <Render3D
+          key={glEpoch}
+          worldRef={worldRef}
+          width={sw}
+          height={sh}
+          paused={paused}
+          hidden={docked}
+          onReady={markReady}
+        />
+      )}
 
       <Svg width={sw} height={sh} style={StyleSheet.absoluteFill} pointerEvents="none">
         {waveLines.map((wl, i) => (
@@ -421,6 +467,12 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         <Text style={styles.pauseText}>PAUSE</Text>
       </View>
 
+      {!renderReady && (
+        <View style={styles.loading} pointerEvents="none">
+          <Text style={styles.loadingText}>LOADING</Text>
+        </View>
+      )}
+
       {paused && w.dockedHarborIndex < 0 && (
         <View style={styles.pauseOverlay}>
           <Text style={styles.pauseOverlayText}>PAUSED</Text>
@@ -475,6 +527,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  loading: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  loadingText: { color: COLORS.textDim, fontSize: 12, fontWeight: '800', letterSpacing: 6 },
   pauseText: { color: COLORS.text, fontSize: 13, fontWeight: '800', letterSpacing: 2 },
   pauseOverlay: {
     position: 'absolute',

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View } from 'react-native';
+import { BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from './colors';
 import { Game } from './game/Game';
@@ -124,11 +124,21 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
     setScreen('dead');
   }
 
+  // Android Back inside the harbor leaves it (instead of closing the app).
+  const leaveRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (screen !== 'docked') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { leaveRef.current(); return true; });
+    return () => sub.remove();
+  }, [screen]);
+
   function onLeaveHarbor() {
     if (!worldRef.current) return;
     undock(worldRef.current);
     setScreen('playing');
   }
+
+  leaveRef.current = onLeaveHarbor;
 
   function onRepair() {
     if (!worldRef.current) return;
@@ -183,7 +193,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
   // Edge-to-edge: menus keep the original look by sitting inside the system
   // bars. The game and the brand card draw full-bleed and handle insets
   // themselves.
-  const inset = screen === 'playing' || screen === 'brand'
+  const inset = screen === 'playing' || screen === 'docked' || screen === 'brand'
     ? null
     : { paddingTop: insets.top, paddingBottom: insets.bottom };
 
@@ -222,11 +232,20 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
         />
       )}
 
-      {screen === 'playing' && w && (
-        <Game initialWorld={w} onDocked={onDocked} onDied={onDied} onQuitToMenu={onQuitToMenu} />
+      {/* The game stays mounted while docked (no GL/model rebuild, AUTO and
+          weapon state survive); the harbor screen is an opaque overlay. */}
+      {(screen === 'playing' || screen === 'docked') && w && (
+        <Game
+          initialWorld={w}
+          docked={screen === 'docked'}
+          onDocked={onDocked}
+          onDied={onDied}
+          onQuitToMenu={onQuitToMenu}
+        />
       )}
 
       {screen === 'docked' && w && (
+        <View style={[styles.harbor, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <ShipyardScreen
           harborName={w.harbors[w.nearHarborIndex]?.name ?? 'Unknown Harbor'}
           run={w.run}
@@ -237,6 +256,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
           onSwitchShip={onSwitchShip}
           onLeave={onLeaveHarbor}
         />
+        </View>
       )}
 
       {screen === 'dead' && lastRunRef.current && (
@@ -253,4 +273,5 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
+  harbor: { ...StyleSheet.absoluteFillObject, backgroundColor: COLORS.bg },
 });
