@@ -1,6 +1,6 @@
 import { rollUpRun } from '../state/progress';
 import { sanitizeSave, defaultSave } from '../state/saveSchema';
-import { SHIPS, shipsUnlockedByKills } from '../data/ships';
+import { SHIPS, shipsUnlockedByKills, unlockLabel } from '../data/ships';
 import { UPGRADES } from '../data/upgrades';
 import { createWorld, tryUpgrade } from '../game/world';
 
@@ -69,5 +69,16 @@ describe('upgrades respect maxLevel', () => {
     const parts = w.run.parts;
     expect(tryUpgrade(w, key)).toBe(false);
     expect(w.run.parts).toBe(parts);                          // and charges nothing
+  });
+});
+
+describe('unlock communication', () => {
+  test('a locked ship shows target, progress and what is left', () => {
+    expect(unlockLabel(50, 37)).toBe('Locked: 37 / 50 total kills (13 to go)');
+    expect(unlockLabel(500, 0)).toBe('Locked: 0 / 500 total kills (500 to go)');
+  });
+  test('never shows progress beyond the target or negative remainders', () => {
+    expect(unlockLabel(10, 999)).toBe('Locked: 10 / 10 total kills (0 to go)');
+    expect(unlockLabel(10, -5)).toBe('Locked: 0 / 10 total kills (10 to go)');
   });
 });

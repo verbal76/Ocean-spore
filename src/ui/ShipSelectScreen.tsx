@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '../colors';
-import { SHIPS } from '../data/ships';
+import { SHIPS, unlockLabel } from '../data/ships';
 
 interface Props {
   captainName: string;
@@ -62,7 +62,7 @@ export function ShipSelectScreen({
                   {s.name}
                 </Text>
                 <Text style={styles.shipChipDesc}>
-                  {unlocked ? s.description : `Unlock @ ${s.unlockKills} kills`}
+                  {unlocked ? s.description : unlockLabel(s.unlockKills, lifetimeKills)}
                 </Text>
                 <Text style={styles.shipStats}>
                   HULL {s.baseHull} · SPD {s.baseSpeed} · DMG {s.baseDamage}

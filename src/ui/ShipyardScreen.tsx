@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '../colors';
-import { SHIPS } from '../data/ships';
+import { SHIPS, unlockLabel } from '../data/ships';
 import { UPGRADES, upgradeCost } from '../data/upgrades';
 import { Run, UpgradeKey } from '../game/types';
 
@@ -113,7 +113,7 @@ export function ShipyardScreen({
                     {s.name}
                   </Text>
                   <Text style={styles.upgradeDesc}>
-                    {unlocked ? s.description : `Unlock at ${s.unlockKills} kills`}
+                    {unlocked ? s.description : unlockLabel(s.unlockKills, run.lifetimeKillsAtStart + run.kills)}
                   </Text>
                   <Text style={styles.shipStats}>
                     HULL {s.baseHull} · SPD {s.baseSpeed} · DMG {s.baseDamage} · ROF {s.baseFireRate}

@@ -115,6 +115,17 @@ export function shipsUnlockedByKills(lifetimeKills: number): string[] {
   return SHIPS.filter((s) => s.unlockKills <= lifetimeKills).map((s) => s.id);
 }
 
+/**
+ * What a locked ship tells the player. Unlocks are LIFETIME kills (across all
+ * runs), so show both the target and the progress toward it.
+ */
+export function unlockLabel(unlockKills: number, lifetimeKills: number): string {
+  const kills = Math.max(0, lifetimeKills);
+  const have = Math.min(kills, unlockKills);
+  const left = Math.max(0, unlockKills - kills);
+  return `Locked: ${have} / ${unlockKills} total kills (${left} to go)`;
+}
+
 export const SHIPS_BY_ID: Record<string, ShipClass> = SHIPS.reduce(
   (acc, s) => ({ ...acc, [s.id]: s }),
   {} as Record<string, ShipClass>
