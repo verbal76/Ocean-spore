@@ -57,7 +57,7 @@ def main():
     vcode = g(r"versionCode='(\d+)'")
     vname = g(r"versionName='([^']*)'")
     tsdk = g(r"targetSdkVersion:'(\d+)'")
-    msdk = g(r"sdkVersion:'(\d+)'")
+    msdk = g(r"(?:^|\n)(?:min)?[sS]dkVersion:'(\d+)'")
 
     if pkg != PACKAGE:
         fails.append(f"package is {pkg}, expected {PACKAGE}")
