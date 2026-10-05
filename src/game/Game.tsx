@@ -16,6 +16,7 @@ import { RENDER_3D, Render3D } from '../render3d';
 import { FireButton } from '../ui/FireButton';
 import { HUD } from '../ui/HUD';
 import { Joystick } from '../ui/Joystick';
+import { buildLayout, ControlState, METRICS, TapAction, TouchController, TouchPoint } from './controls';
 import { Run } from './types';
 import { cycleWeapon, dockAt, InputState, newStepClock, stepFixed, World } from './world';
 import { flushSaves } from '../state/persistence';
@@ -31,11 +32,10 @@ const SHIP_POLY = '1.0,0 -0.55,-0.55 -0.30,0 -0.55,0.55';
 const ENEMY_POLY = '0.9,0 -0.85,-0.6 -0.40,0 -0.85,0.6';
 const BOSS_POLY = '1.0,0 0.0,-0.7 -0.9,-0.5 -0.6,0 -0.9,0.5 0.0,0.7';
 
-type TouchKind = 'joystick' | 'fire' | 'pause' | 'auto' | 'weapon' | 'dock';
-interface TouchState { kind: TouchKind; startX: number; startY: number; }
-interface Bounds { cx: number; cy: number; radius?: number; w?: number; h?: number; }
-
-const TAP_KINDS = new Set<TouchKind>(['pause', 'auto', 'weapon', 'dock']);
+/** Absolute placement of a passive control from the shared layout. */
+function boxStyle(b: { cx: number; cy: number; w: number; h: number }) {
+  return { position: 'absolute' as const, left: b.cx - b.w / 2, top: b.cy - b.h / 2, width: b.w, height: b.h };
+}
 
 // Border color used to show which weapon mode is active. Mirrors
 // AUTO's smallBtnOn cyan styling so the player can tell at a
@@ -45,21 +45,6 @@ function weaponModeColor(mode: number): string {
   if (mode === 2) return '#f97316'; // TWIN: orange
   return '#22d3ee';                  // SINGLE: cyan
 }
-
-const JOY_BOTTOM = 28;
-const JOY_LEFT = 22;
-const JOY_SIZE = 130;
-const FIRE_BOTTOM = 28;
-const FIRE_RIGHT = 22;
-const FIRE_SIZE = 100;
-const SMALLBTN_W = 70;
-const SMALLBTN_H = 36;
-const SMALLBTN_GAP = 8;
-const SMALL_FIRE_GAP = 10;
-const PAUSE_TOP = 180;
-const PAUSE_RIGHT = 12;
-const PAUSE_W = 110;
-const PAUSE_H = 38;
 
 export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   const worldRef = useRef<World>(initialWorld);
@@ -75,7 +60,6 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
 
   const [knobOffset, setKnobOffset] = useState({ x: 0, y: 0 });
   const [firePressed, setFirePressed] = useState(false);
-  const touchesRef = useRef<Map<number | string, TouchState>>(new Map());
 
   // Edge-to-edge: the game draws behind the status and gesture bars, so
   // controls and the HUD are offset by the system insets. Layout size comes
@@ -88,41 +72,13 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   });
   const sw = layout.width;
   const sh = layout.height;
-  const joyBottom = JOY_BOTTOM + insets.bottom;
-  const fireBottom = FIRE_BOTTOM + insets.bottom;
-  const pauseTop = PAUSE_TOP + insets.top;
-
-  const bounds: Record<TouchKind, Bounds> = {
-    joystick: {
-      cx: JOY_LEFT + JOY_SIZE / 2,
-      cy: sh - joyBottom - JOY_SIZE / 2,
-      radius: JOY_SIZE / 2,
-    },
-    fire: {
-      cx: sw - FIRE_RIGHT - FIRE_SIZE / 2,
-      cy: sh - fireBottom - FIRE_SIZE / 2,
-      radius: FIRE_SIZE / 2,
-    },
-    auto: {
-      cx: sw - FIRE_RIGHT - FIRE_SIZE / 2 - (SMALLBTN_W + SMALLBTN_GAP) / 2,
-      cy: sh - fireBottom - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
-      w: SMALLBTN_W,
-      h: SMALLBTN_H,
-    },
-    weapon: {
-      cx: sw - FIRE_RIGHT - FIRE_SIZE / 2 + (SMALLBTN_W + SMALLBTN_GAP) / 2,
-      cy: sh - fireBottom - FIRE_SIZE - SMALL_FIRE_GAP - SMALLBTN_H / 2,
-      w: SMALLBTN_W,
-      h: SMALLBTN_H,
-    },
-    pause: {
-      cx: sw - PAUSE_RIGHT - PAUSE_W / 2,
-      cy: pauseTop + PAUSE_H / 2,
-      w: PAUSE_W,
-      h: PAUSE_H,
-    },
-    dock: { cx: sw / 2, cy: sh * 0.4 + 30, w: 220, h: 70 },
-  };
+  // One layout drives BOTH what is drawn and what a touch hits.
+  const ctl = buildLayout(sw, sh, insets);
+  const controllerRef = useRef<TouchController | null>(null);
+  const lastControlRef = useRef<ControlState>({ dx: 0, dy: 0, knobX: 0, knobY: 0, fire: false });
+  if (!controllerRef.current) controllerRef.current = new TouchController(ctl);
+  controllerRef.current.setLayout(ctl);
+  controllerRef.current.setHarborInRange(worldRef.current.nearHarborIndex >= 0);
 
   useEffect(() => {
     let mounted = true;
@@ -163,67 +119,23 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
     return () => { appSub.remove(); backSub.remove(); };
   }, []);
 
-  function classify(x: number, y: number): TouchKind | null {
-    const joy = bounds.joystick;
-    if (joy.radius !== undefined && Math.hypot(x - joy.cx, y - joy.cy) <= joy.radius + 36) return 'joystick';
-    const fire = bounds.fire;
-    if (fire.radius !== undefined && Math.hypot(x - fire.cx, y - fire.cy) <= fire.radius + 36) return 'fire';
-
-    const dock = bounds.dock;
-    if (worldRef.current.nearHarborIndex >= 0 && dock.w !== undefined && dock.h !== undefined) {
-      if (Math.abs(x - dock.cx) <= dock.w / 2 + 36 && Math.abs(y - dock.cy) <= dock.h / 2 + 36) return 'dock';
+  // Push a controller snapshot into the sim input and the knob/fire visuals.
+  function applyControls(next: ControlState) {
+    const prev = lastControlRef.current;
+    lastControlRef.current = next;
+    inputRef.current.dx = next.dx;
+    inputRef.current.dy = next.dy;
+    inputRef.current.fire = next.fire;
+    if (prev.knobX !== next.knobX || prev.knobY !== next.knobY) {
+      setKnobOffset({ x: next.knobX, y: next.knobY });
     }
-
-    const pause = bounds.pause;
-    if (pause.w !== undefined && pause.h !== undefined) {
-      if (Math.abs(x - pause.cx) <= pause.w / 2 + 36 && Math.abs(y - pause.cy) <= pause.h / 2 + 36) return 'pause';
-    }
-
-    const a = bounds.auto;
-    if (a.w !== undefined && a.h !== undefined) {
-      if (Math.abs(x - a.cx) <= a.w / 2 + 28 && Math.abs(y - a.cy) <= a.h / 2 + 28) return 'auto';
-    }
-    const we = bounds.weapon;
-    if (we.w !== undefined && we.h !== undefined) {
-      if (Math.abs(x - we.cx) <= we.w / 2 + 28 && Math.abs(y - we.cy) <= we.h / 2 + 28) return 'weapon';
-    }
-
-    return null;
+    if (prev.fire !== next.fire) setFirePressed(next.fire);
   }
 
-  function updateJoystick(px: number, py: number) {
-    const b = bounds.joystick;
-    if (b.radius === undefined) return;
-    const dx = px - b.cx;
-    const dy = py - b.cy;
-    const r = b.radius;
-    const d = Math.hypot(dx, dy);
-    const clamped = Math.min(d, r);
-    const nx = d > 0 ? dx / d : 0;
-    const ny = d > 0 ? dy / d : 0;
-    setKnobOffset({ x: nx * clamped, y: ny * clamped });
-    inputRef.current.dx = nx * (clamped / r);
-    inputRef.current.dy = ny * (clamped / r);
-  }
-
-  function clearJoystick() {
-    setKnobOffset({ x: 0, y: 0 });
-    inputRef.current.dx = 0;
-    inputRef.current.dy = 0;
-  }
-
-  function setFire(on: boolean) {
-    setFirePressed(on);
-    inputRef.current.fire = on;
-  }
-
-  // Releases every held control. Called whenever the sim stops or resumes:
-  // while paused processTouches() ignores finger-up events, so a held
-  // joystick/FIRE would otherwise stay latched after resume.
+  // Releases every held control. Called whenever the sim pauses, docks or
+  // resumes, and on unmount-ish transitions: nothing may stay latched.
   function releaseAllInput() {
-    touchesRef.current.clear();
-    clearJoystick();
-    setFire(false);
+    applyControls(controllerRef.current!.releaseAll());
   }
 
   function setPausedState(next: boolean) {
@@ -234,7 +146,7 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
   const setPausedStateRef = useRef(setPausedState);
   setPausedStateRef.current = setPausedState;
 
-  function triggerAction(kind: TouchKind) {
+  function triggerAction(kind: TapAction) {
     if (kind === 'pause') {
       setPausedState(!pausedRef.current);
     } else if (kind === 'auto') {
@@ -253,49 +165,23 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
     }
   }
 
-  function shouldSetResponder(e: GestureResponderEvent) {
-    if (pausedRef.current) return false;
-    return classify(e.nativeEvent.locationX, e.nativeEvent.locationY) !== null;
-  }
-
-  function processTouches(e: GestureResponderEvent) {
+  // Every touch event carries the full list of fingers currently down; the
+  // controller reconciles against it, so a missed "end" can never latch input.
+  function onTouches(e: GestureResponderEvent) {
     if (pausedRef.current) return;
-    const active = e.nativeEvent.touches || [];
-    const activeIds = new Set(active.map((t) => t.identifier));
-
-    for (const t of active) {
-      const id = t.identifier;
-      const tx = (t as any).locationX ?? t.pageX;
-      const ty = (t as any).locationY ?? t.pageY;
-      if (!touchesRef.current.has(id)) {
-        const kind = classify(tx, ty);
-        if (!kind) continue;
-        touchesRef.current.set(id, { kind, startX: tx, startY: ty });
-        if (kind === 'fire') setFire(true);
-        else if (TAP_KINDS.has(kind)) triggerAction(kind);
-      }
-      const state = touchesRef.current.get(id);
-      if (state?.kind === 'joystick') updateJoystick(tx, ty);
-    }
-
-    const ended = (e.nativeEvent.changedTouches || []).filter(
-      (t) => !activeIds.has(t.identifier)
-    );
-    for (const t of ended) {
-      const state = touchesRef.current.get(t.identifier);
-      if (!state) continue;
-      touchesRef.current.delete(t.identifier);
-      if (state.kind === 'fire') setFire(false);
-      else if (state.kind === 'joystick') clearJoystick();
-    }
+    const pts: TouchPoint[] = (e.nativeEvent.touches || []).map((t) => ({
+      id: t.identifier,
+      x: (t as any).locationX ?? t.pageX,
+      y: (t as any).locationY ?? t.pageY,
+    }));
+    const c = controllerRef.current!;
+    applyControls(c.sync(pts));
+    // Taps run AFTER the state is applied: PAUSE/DOCK release all input.
+    for (const a of c.takeTaps()) triggerAction(a);
   }
 
-  function onResponderRelease() {
-    for (const state of Array.from(touchesRef.current.values())) {
-      if (state.kind === 'fire') setFire(false);
-      else if (state.kind === 'joystick') clearJoystick();
-    }
-    touchesRef.current.clear();
+  function onTouchesCancelled() {
+    releaseAllInput();
   }
 
   function onResume() { setPausedState(false); }
@@ -345,12 +231,15 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         const { width, height } = e.nativeEvent.layout;
         setLayout((l) => (l.width === width && l.height === height ? l : { width, height }));
       }}
-      onStartShouldSetResponder={shouldSetResponder}
-      onMoveShouldSetResponder={shouldSetResponder}
-      onResponderGrant={processTouches}
-      onResponderMove={processTouches}
-      onResponderRelease={onResponderRelease}
-      onResponderTerminate={onResponderRelease}
+      onStartShouldSetResponder={() => !pausedRef.current}
+      onMoveShouldSetResponder={() => !pausedRef.current}
+      onResponderTerminationRequest={() => false}
+      onResponderGrant={onTouches}
+      onResponderStart={onTouches}
+      onResponderMove={onTouches}
+      onResponderEnd={onTouches}
+      onResponderRelease={onTouches}
+      onResponderTerminate={onTouchesCancelled}
     >
       {RENDER_3D && <Render3D worldRef={worldRef} />}
 
@@ -482,55 +371,54 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
         bossActive={!!boss} bossHp={boss ? { current: boss.hull, max: boss.maxHull } : null} />
 
       {w.nearHarborIndex >= 0 && (
-        <View style={styles.dockPrompt} pointerEvents="none">
+        <View
+          style={[styles.dockPrompt, {
+            left: ctl.dock.cx - ctl.dock.w / 2, top: ctl.dock.cy - ctl.dock.h / 2,
+            width: ctl.dock.w, height: ctl.dock.h,
+          }]}
+          pointerEvents="none"
+        >
           <Text style={styles.dockPromptLabel}>DOCK AT</Text>
           <Text style={styles.dockPromptName}>{w.harbors[w.nearHarborIndex].name}</Text>
         </View>
       )}
 
-      {/* controlsLeft = "box-none" so empty container space stays
-          transparent to touches but the Joystick keeps its custom
-          drag tracking via the root responder. The joystick visual
-          itself is still passive; processTouches handles its math. */}
-      <View style={[styles.controlsLeft, { bottom: joyBottom }]} pointerEvents="box-none">
-        <Joystick knob={knobOffset} />
+      {/* All controls are passive visuals placed from the SAME layout the
+          touch controller hit-tests (see game/controls.ts). Touches are handled
+          once, by the root responder above. */}
+      <View
+        pointerEvents="none"
+        style={{ position: 'absolute', left: ctl.joystick.cx - ctl.joystick.radius, top: ctl.joystick.cy - ctl.joystick.radius }}
+      >
+        <Joystick size={METRICS.JOY_SIZE} knob={knobOffset} />
       </View>
 
-      {/* controlsRight = "box-none" so the container itself doesn't
-          eat touches, but the Pressable children DO receive them.
-          Each button calls the existing triggerAction or setFire. */}
-      <View style={[styles.controlsRight, { bottom: fireBottom }]} pointerEvents="box-none">
-        <View style={styles.smallBtnRow}>
-          <Pressable
-            style={[styles.smallBtn, autoFire && styles.smallBtnOn]}
-            onPress={() => triggerAction('auto')}
-            hitSlop={12}
-          >
-            <Text style={styles.smallBtnText}>AUTO</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.smallBtn, { borderColor: weaponModeColor(w.run.weaponMode) }]}
-            onPress={() => triggerAction('weapon')}
-            hitSlop={12}
-          >
-            <Text style={styles.smallBtnText}>
-              {w.run.weaponMode === 0 ? 'SINGLE' : w.run.weaponMode === 1 ? 'SPREAD' : 'TWIN'}
-            </Text>
-          </Pressable>
-        </View>
-        <Pressable
-          onPressIn={() => setFire(true)}
-          onPressOut={() => setFire(false)}
-          hitSlop={16}
-        >
-          <FireButton pressed={firePressed} />
-        </Pressable>
+      <View
+        pointerEvents="none"
+        style={[styles.smallBtn, autoFire && styles.smallBtnOn, boxStyle(ctl.auto)]}
+      >
+        <Text style={styles.smallBtnText}>AUTO</Text>
+      </View>
+      <View
+        pointerEvents="none"
+        style={[styles.smallBtn, { borderColor: weaponModeColor(w.run.weaponMode) }, boxStyle(ctl.weapon)]}
+      >
+        <Text style={styles.smallBtnText}>
+          {w.run.weaponMode === 0 ? 'SINGLE' : w.run.weaponMode === 1 ? 'SPREAD' : 'TWIN'}
+        </Text>
       </View>
 
-      <View style={[styles.pauseBtn, { top: pauseTop }]} pointerEvents="box-none">
-        <Pressable onPress={() => triggerAction('pause')} hitSlop={12}>
-          <Text style={styles.pauseText}>{paused ? 'RESUME' : 'PAUSE'}</Text>
-        </Pressable>
+      <View
+        pointerEvents="none"
+        style={{ position: 'absolute', left: ctl.fire.cx - ctl.fire.radius, top: ctl.fire.cy - ctl.fire.radius }}
+      >
+        <FireButton size={METRICS.FIRE_SIZE} pressed={firePressed} />
+      </View>
+
+      {/* Passive: the root responder owns the tap. While paused the overlay
+          below covers the screen and offers RESUME. */}
+      <View pointerEvents="none" style={[styles.pauseBtn, boxStyle(ctl.pause)]}>
+        <Text style={styles.pauseText}>PAUSE</Text>
       </View>
 
       {paused && w.dockedHarborIndex < 0 && (
@@ -555,24 +443,12 @@ export function Game({ initialWorld, onDocked, onDied, onQuitToMenu }: Props) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.ocean },
-  controlsLeft: { position: 'absolute', bottom: JOY_BOTTOM, left: JOY_LEFT },
-  controlsRight: {
-    position: 'absolute',
-    bottom: FIRE_BOTTOM,
-    right: FIRE_RIGHT,
-    alignItems: 'center',
-    gap: SMALL_FIRE_GAP,
-  },
-  smallBtnRow: { flexDirection: 'row', gap: SMALLBTN_GAP },
   smallBtn: {
     backgroundColor: 'rgba(3,16,28,0.6)',
     borderColor: COLORS.hudBorder,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 4,
     borderRadius: 999,
-    minWidth: SMALLBTN_W,
-    height: SMALLBTN_H,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -583,26 +459,18 @@ const styles = StyleSheet.create({
   smallBtnText: { color: COLORS.text, fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
   dockPrompt: {
     position: 'absolute',
-    top: '40%',
-    alignSelf: 'center',
     backgroundColor: 'rgba(251,191,36,0.92)',
-    paddingHorizontal: 22,
-    paddingVertical: 12,
     borderRadius: 999,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   dockPromptLabel: { color: COLORS.bg, fontSize: 10, letterSpacing: 3, fontWeight: '800' },
   dockPromptName: { color: COLORS.bg, fontSize: 18, fontWeight: '900', letterSpacing: 2, marginTop: 2 },
   pauseBtn: {
     position: 'absolute',
-    top: PAUSE_TOP,
-    right: PAUSE_RIGHT,
-    width: PAUSE_W,
-    height: PAUSE_H,
     backgroundColor: 'rgba(3,16,28,0.7)',
     borderColor: COLORS.hudBorder,
     borderWidth: 1,
-    paddingHorizontal: 12,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
