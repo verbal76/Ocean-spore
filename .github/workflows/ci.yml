@@ -36,9 +36,7 @@ jobs:
         run: python3 scripts/check-brand.py
 
       - name: Audio assets match their generator
-        run: |
-          python3 scripts/make-audio.py
-          git diff --exit-code -- assets/audio
+        run: python3 scripts/check-audio.py
 
       - name: Typecheck
         run: npm run typecheck

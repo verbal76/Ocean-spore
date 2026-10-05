@@ -6,10 +6,10 @@ Output: assets/audio/*.wav  (mono, 16-bit PCM). Pure standard library.
 Design-doc intent: cannon impacts, engine rumble, water splashes, escalating
 energy. Music is intentionally NOT generated here (see docs/AUDIO.md).
 """
-import math, os, random, struct, wave
+import math, os, random, struct, sys, wave
 
 SR = 22050
-OUT = os.path.join(os.path.dirname(__file__), "..", "assets", "audio")
+OUT = os.path.join(os.path.dirname(__file__), "..", "assets", "audio")   # overridden by --out DIR
 TAU = 2 * math.pi
 
 
@@ -221,6 +221,9 @@ SOUNDS = {
 
 
 def main():
+    global OUT
+    if "--out" in sys.argv:
+        OUT = sys.argv[sys.argv.index("--out") + 1]
     total = 0
     for name, (fn, peak) in SOUNDS.items():
         x = declick(normalize(fn(), peak))
