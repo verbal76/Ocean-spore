@@ -4,6 +4,7 @@ import * as Updates from 'expo-updates';
 import * as Clipboard from 'expo-clipboard';
 import { COLORS } from '../colors';
 import { BUILD_INFO } from '../__generated__/build-info';
+import { getAudio } from '../audio';
 import { glbLoadStatus } from '../render3d/loadStatus';
 
 interface Props {
@@ -30,6 +31,8 @@ export function AboutOverlay({ onClose }: Props) {
 
   const rows: [string, string][] = [
     ['APP', `Ocean Spore v${BUILD_INFO.appVersion}`],
+    ['STUDIO', 'Hot Attic Games'],
+    ['VERSION CODE', String(BUILD_INFO.androidVersionCode ?? '-')],
     ['BUILD', `#${BUILD_INFO.buildNumber}`],
     ['COMMIT', `${BUILD_INFO.commitShort}${BUILD_INFO.dirty ? ' [dirty]' : ''}`],
     ['BRANCH', BUILD_INFO.branch],
@@ -39,6 +42,7 @@ export function AboutOverlay({ onClose }: Props) {
     ['OTA', otaShort],
     ['SOURCE', isEmbedded ? 'embedded' : 'over-the-air'],
     ['3D MODELS', glbLine],
+    ['AUDIO', `${getAudio().isEnabled() ? 'on' : 'off'}${getAudio().failures > 0 ? ` (${getAudio().failures} errors)` : ''}`],
   ];
   if (glbLoadStatus.failed > 0) {
     rows.push(['FIRST ERR', glbLoadStatus.firstError || '(none)']);
