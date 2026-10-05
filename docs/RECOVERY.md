@@ -49,3 +49,19 @@ Local rollback tags used during the resurrection: `baseline/build-39-source`,
 - 16 KB page-size: the original APK **fails**. 13 of 14 native libraries per
   64-bit ABI are 4 KB-aligned (`libhermes`, `libreactnative`, `libjsi`,
   `libexpo-gl`, ...). Reproduce with `python3 scripts/check-16kb.py <apk>`.
+
+## v40 qualification (rollback / playtest checkpoint)
+
+| | |
+|---|---|
+| Source | `e2712522338cc1600d52be9bc78d5e9a293eeae3` (branch `ccr-47defc1a-89uvnr`) |
+| Release | `v40` (pre-release), `OceanSpore-v40.apk` |
+| SHA-256 | `d46e448cad4a464b6681610d48c6cd8ea39173302951e4651f7744703e7d70ec` |
+| Qualified | package, versionCode/Name 40, target/compile SDK 36, min 24, same signing certificate as build-39 (`fac61745dc09...3b9c`), arm64 + x86_64 16 KB, trimmed permissions, portrait, adaptive/legacy/round icons, canonical Hot Attic assets, 16/16 historical game assets |
+
+Rollback tags created during the resurrection (local to the working clone; the
+SHAs are authoritative): `baseline/build-39-source` a3f17b6,
+`baseline/working-branch-tip` cd44482, `baseline/claude-ui-tip` 44202cd,
+`baseline/main-before-resurrection` 4e1c377, `baseline/resurrection-start`
+a0f2ec3, `baseline/pre-sdk-upgrade` 25a2186. v40 itself is
+`e2712522338cc1600d52be9bc78d5e9a293eeae3`.
