@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, Pressable, StyleSheet, useWindowDimensions } from 'react-native';
 import { COLORS } from '../colors';
+import { BRAND_SPLASH_TIMING, BRAND_SPLASH_TOTAL_MS } from '../app/launchFlow';
 
 // Hot Attic Games studio splash. First thing shown after launch; hands off to
 // the Ocean Spore title screen. The artwork is the authoritative studio logo
@@ -9,9 +10,6 @@ import { COLORS } from '../colors';
 // The timing is a fixed brand moment that does NOT wait on game
 // initialisation (save loading happens in parallel). Tap to skip.
 
-export const BRAND_SPLASH_TIMING = { fadeInMs: 450, holdMs: 1100, fadeOutMs: 350 } as const;
-export const BRAND_SPLASH_TOTAL_MS =
-  BRAND_SPLASH_TIMING.fadeInMs + BRAND_SPLASH_TIMING.holdMs + BRAND_SPLASH_TIMING.fadeOutMs;
 
 const LOGO = require('../../assets/branding/hot-attic-logo.png');
 const LOGO_ASPECT = 667 / 1024;

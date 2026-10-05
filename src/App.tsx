@@ -17,6 +17,7 @@ import {
   tryRepair, tryUpgrade, undock, World,
 } from './game/world';
 import { SHIPS_BY_ID } from './data/ships';
+import { initialScreen, SCREEN_AFTER_BRAND } from './app/launchFlow';
 import { getAudio } from './audio';
 import { loadSave, saveSave } from './state/persistence';
 import { Progress, rollUpRun } from './state/progress';
@@ -29,7 +30,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary onReset={() => setRecoveries((n) => n + 1)}>
-        <AppInner key={recoveries} startScreen={recoveries === 0 ? 'brand' : 'splash'} />
+        <AppInner key={recoveries} startScreen={initialScreen(recoveries)} />
       </ErrorBoundary>
     </SafeAreaProvider>
   );
@@ -216,7 +217,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
     <View style={[styles.root, inset]}>
       <StatusBar style="light" />
 
-      {screen === 'brand' && <BrandSplash onDone={() => setScreen('splash')} />}
+      {screen === 'brand' && <BrandSplash onDone={() => setScreen(SCREEN_AFTER_BRAND)} />}
 
       {screen === 'splash' && (
         <SplashScreen
