@@ -17,6 +17,7 @@
   "dependencies": {
     "expo": "~54.0.37",
     "expo-asset": "~12.0.13",
+    "expo-audio": "~1.1.1",
     "expo-clipboard": "~8.0.8",
     "expo-file-system": "~19.0.24",
     "expo-gl": "~16.0.10",
@@ -49,6 +50,9 @@
     ],
     "transform": {
       "^.+\\.(t|j)sx?$": "babel-jest"
+    },
+    "moduleNameMapper": {
+      "\\.(wav|glb|png|webp|jpg)$": "<rootDir>/src/__tests__/fileStub.js"
     }
   },
   "oceanSpore": {

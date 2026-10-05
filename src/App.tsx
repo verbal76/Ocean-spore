@@ -17,6 +17,7 @@ import {
   tryRepair, tryUpgrade, undock, World,
 } from './game/world';
 import { SHIPS_BY_ID } from './data/ships';
+import { getAudio } from './audio';
 import { loadSave, saveSave } from './state/persistence';
 import { Progress, rollUpRun } from './state/progress';
 import { defaultSave, SAVE_SCHEMA_VERSION, SaveData } from './state/saveSchema';
@@ -43,6 +44,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
   const [lifetimeKills, setLifetimeKills] = useState<number>(0);
   const [lifetimeParts, setLifetimeParts] = useState<number>(0);
   const [captainName, setCaptainName] = useState<string>('');
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const worldRef = useRef<World | null>(null);
   const [, force] = useState(0);
   const lastRunRef = useRef<Run | null>(null);
@@ -65,6 +67,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
         setLifetimeKills(s.totalKills);
         setLifetimeParts(s.totalParts);
         setCaptainName(s.captainName || '');
+        setSoundEnabled(s.soundEnabled);
         saveReadyRef.current = true;
         // Replay anything the player changed before the load finished, on
         // top of the loaded data (not on top of stale defaults).
@@ -86,6 +89,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
       totalParts: lifetimeParts,
       lastShip: selectedShip,
       captainName,
+      soundEnabled,
       schemaVersion: SAVE_SCHEMA_VERSION,
       ...overrides,
     });
@@ -120,6 +124,8 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
   function onDied(run: Run) {
     lastRunRef.current = run;
     const newly = bankRun(run);
+    getAudio().play('gameover');
+    if (newly.length > 0) setTimeout(() => getAudio().play('unlock'), 900);
     setNewUnlocks(newly.map((id) => SHIPS_BY_ID[id]?.name ?? id));
     setScreen('dead');
   }
@@ -131,6 +137,15 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { leaveRef.current(); return true; });
     return () => sub.remove();
   }, [screen]);
+
+  // The mute setting lives in the save file and drives the audio manager.
+  useEffect(() => { getAudio().setEnabled(soundEnabled); }, [soundEnabled]);
+
+  function onToggleSound() {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    persist({ soundEnabled: next });
+  }
 
   function onLeaveHarbor() {
     if (!worldRef.current) return;
@@ -238,6 +253,8 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
         <Game
           initialWorld={w}
           docked={screen === 'docked'}
+          soundEnabled={soundEnabled}
+          onToggleSound={onToggleSound}
           onDocked={onDocked}
           onDied={onDied}
           onQuitToMenu={onQuitToMenu}

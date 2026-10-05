@@ -8,7 +8,7 @@
     "userInterfaceStyle": "dark",
     "scheme": "oceanspore",
     "newArchEnabled": false,
-    "runtimeVersion": "2.0.0",
+    "runtimeVersion": "2.1.0",
     "updates": {
       "url": "https://u.expo.dev/0cc1bf9c-b6c8-4ec7-bf71-4f7d6bb5b5d3",
       "checkAutomatically": "ON_LOAD",
@@ -32,7 +32,11 @@
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.SYSTEM_ALERT_WINDOW"
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
@@ -48,7 +52,8 @@
         }
       ],
       "expo-updates",
-      "./plugins/with-no-compress-glb"
+      "./plugins/with-no-compress-glb",
+      "./plugins/with-trim-audio-manifest"
     ],
     "extra": {
       "eas": {

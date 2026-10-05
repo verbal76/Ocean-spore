@@ -13,6 +13,8 @@ export interface SaveData {
   totalParts: number;
   lastShip: string;
   captainName: string;
+  /** Sound effects on/off (default on). */
+  soundEnabled: boolean;
   schemaVersion: number;
 }
 
@@ -28,6 +30,7 @@ export function defaultSave(): SaveData {
     totalParts: 0,
     lastShip: STARTER_SHIP,
     captainName: '',
+    soundEnabled: true,
     schemaVersion: SAVE_SCHEMA_VERSION,
   };
 }
@@ -67,6 +70,8 @@ export function sanitizeSave(raw: unknown): SaveData {
 
   out.captainName =
     typeof r.captainName === 'string' ? r.captainName.slice(0, MAX_CAPTAIN_NAME) : '';
+
+  out.soundEnabled = typeof r.soundEnabled === 'boolean' ? r.soundEnabled : true;
 
   out.schemaVersion = SAVE_SCHEMA_VERSION;
   return out;

@@ -21,7 +21,31 @@ export const WORLD_WIDTH = 6000;
 export const BOSS_CONTACT_COOLDOWN = 0.75;
 export const WORLD_HEIGHT = 6000;
 
+/** Things that happen in the sim that the outside world (audio, haptics) may react to. */
+export type GameEventKind =
+  | 'fire' | 'hit' | 'explode' | 'explodeBoss' | 'ram' | 'damage' | 'boss'
+  | 'pickup' | 'crate' | 'unlock' | 'storm' | 'dock' | 'undock';
+
+/** Undrained events are capped so a screen that never drains (tests, harbor) cannot grow without bound. */
+export const MAX_QUEUED_EVENTS = 96;
+
+export function emit(world: World, kind: GameEventKind) {
+  const q = world.events;
+  if (q.length >= MAX_QUEUED_EVENTS) q.shift();
+  q.push(kind);
+}
+
+/** Take (and clear) the events queued since the last drain. */
+export function drainEvents(world: World): GameEventKind[] {
+  if (world.events.length === 0) return world.events;
+  const out = world.events;
+  world.events = [];
+  return out;
+}
+
 export interface World {
+  /** Events since the last drainEvents(); see GameEventKind. */
+  events: GameEventKind[];
   player: PlayerShip;
   enemies: EnemyShip[];
   bullets: Bullet[];
@@ -113,6 +137,7 @@ export function createWorld(shipClassId: string, unlocked: string[], lifetimeKil
   for (let i = 0; i < 16; i++) salvageRings.push(newSalvageRing());
 
   return {
+    events: [],
     player,
     enemies: [],
     bullets: [],
@@ -341,6 +366,7 @@ function spawnBoss(world: World) {
   });
   world.run.bossSpawned = true;
   world.shake = Math.max(world.shake, 12);
+  emit(world, 'boss');
 }
 
 function dropCrate(world: World) {
@@ -363,6 +389,7 @@ function dropCrate(world: World) {
 
 function fireBullets(world: World) {
   const p = world.player;
+  emit(world, 'fire');
   const speed = 560;
   const muzzles: { side: number; angle: number }[] =
     p.weaponMode === 1
@@ -415,6 +442,7 @@ function tryUnlockShips(world: World) {
     const def = SHIPS_BY_ID[id];
     if (k >= def.unlockKills && !world.run.unlockedShips.includes(id)) {
       world.run.unlockedShips.push(id);
+      emit(world, 'unlock');
     }
   }
 }
@@ -475,6 +503,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     run.weatherCooldown -= dt;
     if (run.weatherCooldown <= 0) {
       run.weather = 'storm';
+      emit(world, 'storm');
       run.weatherUntil = now + 16 + Math.random() * 10;
       world.shake = Math.max(world.shake, 6);
     }
@@ -582,6 +611,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
         const e = world.enemies[j];
         if (Math.hypot(b.pos.x - e.pos.x, b.pos.y - e.pos.y) < e.size + b.size) {
           e.hull -= b.damage;
+          emit(world, e.hull > 0 ? 'hit' : e.isBoss ? 'explodeBoss' : 'explode');
           spawnParticles(world, b.pos, '#fcd34d', 6, 90);
           spawnParticles(world, b.pos, '#fef3c7', 2, 40);
           world.shake = Math.max(world.shake, 1.5);
@@ -611,6 +641,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     } else {
       if (Math.hypot(b.pos.x - p.pos.x, b.pos.y - p.pos.y) < p.size + b.size) {
         p.hull -= b.damage;
+        emit(world, 'damage');
         spawnParticles(world, b.pos, '#fca5a5', 8, 130);
         spawnParticles(world, b.pos, '#ffffff', 3, 60);
         world.bullets.splice(i, 1);
@@ -691,6 +722,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     if (e.contactCooldown) e.contactCooldown = Math.max(0, e.contactCooldown - dt);
     if (pdst < p.size + e.size - 2 && !(e.isBoss && e.contactCooldown)) {
       p.hull -= e.damage * (e.isBoss ? 1.0 : 0.7);
+      emit(world, 'ram');
       spawnParticles(world, e.pos, e.color, e.isBoss ? 16 : 8, 150);
       world.shake = Math.max(world.shake, e.isBoss ? 8 : 3);
       if (!e.isBoss) {
@@ -761,6 +793,7 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
     }
     if (d < p.size + 8) {
       run.parts += pk.amount;
+      emit(world, pk.kind === 'crate' ? 'crate' : 'pickup');
       run.totalParts += pk.amount;
       run.score += pk.amount * 5;
       spawnParticles(world, pk.pos, pk.color, pk.kind === 'crate' ? 10 : 5, 130);
@@ -822,11 +855,13 @@ export function tick(world: World, dt: number, input: InputState): { died: boole
 
 export function dockAt(world: World, idx: number) {
   world.dockedHarborIndex = idx;
+  emit(world, 'dock');
 }
 
 export function undock(world: World) {
   const idx = world.nearHarborIndex >= 0 ? world.nearHarborIndex : world.dockedHarborIndex;
   world.dockedHarborIndex = -1;
+  emit(world, 'undock');
   const h = world.harbors[idx] || world.harbors[0];
   if (h) {
     const a = Math.atan2(world.player.pos.y - h.pos.y, world.player.pos.x - h.pos.x) || 0;

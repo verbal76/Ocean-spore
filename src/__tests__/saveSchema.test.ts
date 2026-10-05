@@ -20,7 +20,7 @@ describe('saveSchema', () => {
     });
     expect(s).toEqual({
       unlockedShips: ['raft', 'patrol'], highScore: 120, totalKills: 40,
-      totalParts: 900, lastShip: 'patrol', captainName: 'Ada',
+      totalParts: 900, lastShip: 'patrol', captainName: 'Ada', soundEnabled: true,
       schemaVersion: SAVE_SCHEMA_VERSION,
     });
   });
@@ -56,6 +56,13 @@ describe('saveSchema', () => {
     expect(s.highScore).toBe(10);
     expect(s.unlockedShips).toEqual(['raft']);
     expect(s.schemaVersion).toBe(SAVE_SCHEMA_VERSION);
+  });
+
+  test('sound setting: a pre-audio save loads with sound ON; false is kept; junk falls back to ON', () => {
+    expect(sanitizeSave({ highScore: 5 }).soundEnabled).toBe(true);          // saves written before audio existed
+    expect(sanitizeSave({ soundEnabled: false }).soundEnabled).toBe(false);
+    expect(sanitizeSave({ soundEnabled: true }).soundEnabled).toBe(true);
+    for (const junk of ['no', 0, null, [], {}]) expect(sanitizeSave({ soundEnabled: junk }).soundEnabled).toBe(true);
   });
 
   test('parseSave returns null for truncated / invalid JSON so a backup can be used', () => {

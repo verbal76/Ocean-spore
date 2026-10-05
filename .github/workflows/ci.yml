@@ -35,6 +35,11 @@ jobs:
       - name: Hot Attic Games logo integrity
         run: python3 scripts/check-brand.py
 
+      - name: Audio assets match their generator
+        run: |
+          python3 scripts/make-audio.py
+          git diff --exit-code -- assets/audio
+
       - name: Typecheck
         run: npm run typecheck
 

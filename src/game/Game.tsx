@@ -18,13 +18,16 @@ import { HUD } from '../ui/HUD';
 import { Joystick } from '../ui/Joystick';
 import { buildLayout, ControlState, METRICS, TapAction, TouchController, TouchPoint } from './controls';
 import { Run } from './types';
-import { cycleWeapon, dockAt, InputState, newStepClock, stepFixed, World } from './world';
+import { getAudio } from '../audio';
+import { cycleWeapon, dockAt, drainEvents, InputState, newStepClock, stepFixed, World } from './world';
 import { flushSaves } from '../state/persistence';
 
 interface Props {
   initialWorld: World;
   /** The harbor screen is open on top of this (still mounted) game. */
   docked: boolean;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
   onDocked: (world: World, harborIdx: number) => void;
   onDied: (run: Run) => void;
   onQuitToMenu: (world: World) => void;
@@ -50,7 +53,7 @@ function weaponModeColor(mode: number): string {
   return '#22d3ee';                  // SINGLE: cyan
 }
 
-export function Game({ initialWorld, docked, onDocked, onDied, onQuitToMenu }: Props) {
+export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDocked, onDied, onQuitToMenu }: Props) {
   const worldRef = useRef<World>(initialWorld);
   // Long-lived effects (game loop, app-state/back handlers) must call the
   // latest callbacks, not the ones from the render they were created in.
@@ -115,6 +118,8 @@ export function Game({ initialWorld, docked, onDocked, onDied, onQuitToMenu }: P
       if (!pausedRef.current && readyRef.current) {
         const w = worldRef.current;
         const res = stepFixed(w, inputRef.current, frameDt, clock);
+        const events = drainEvents(w);
+        if (events.length > 0) getAudio().playEvents(events);
         if (res.died) { onDiedRef.current(w.run); return; }
         // Re-render only while the world is actually moving; paused frames
         // have nothing new to draw.
@@ -127,6 +132,17 @@ export function Game({ initialWorld, docked, onDocked, onDied, onQuitToMenu }: P
     raf = requestAnimationFrame(loop);
     return () => { mounted = false; cancelAnimationFrame(raf); };
   }, []);
+
+  // Ambient sea + engine bed while sailing; everything is silenced while the
+  // sim is paused, the harbor is open, the app is backgrounded or models load.
+  useEffect(() => {
+    const audio = getAudio();
+    audio.startAmbient();
+    return () => { audio.stopAmbient(); audio.setSuspended(false); };
+  }, []);
+  useEffect(() => {
+    getAudio().setSuspended(paused || docked || !renderReady);
+  }, [paused, docked, renderReady]);
 
   // Opening the harbor pauses (done at the tap); leaving it resumes.
   const wasDockedRef = useRef(false);
@@ -184,18 +200,22 @@ export function Game({ initialWorld, docked, onDocked, onDied, onQuitToMenu }: P
 
   function triggerAction(kind: TapAction) {
     if (kind === 'pause') {
+      getAudio().play('tap');
       setPausedState(!pausedRef.current);
     } else if (kind === 'auto') {
+      getAudio().play('tap');
       const next = !autoFire;
       setAutoFire(next);
       inputRef.current.autoFire = next;
     } else if (kind === 'weapon') {
+      getAudio().play('tap');
       cycleWeapon(worldRef.current);
     } else if (kind === 'dock') {
       const w = worldRef.current;
       if (w.nearHarborIndex >= 0) {
         setPausedState(true);
         dockAt(w, w.nearHarborIndex);
+        getAudio().playEvents(drainEvents(w));        // the loop is paused; play the dock cue now
         onDocked(w, w.nearHarborIndex);
       }
     }
@@ -479,6 +499,12 @@ export function Game({ initialWorld, docked, onDocked, onDied, onQuitToMenu }: P
           <View style={styles.pauseMenu}>
             <Pressable style={styles.pauseMenuPrimary} onPress={onResume}>
               <Text style={styles.pauseMenuPrimaryText}>RESUME</Text>
+            </Pressable>
+            <Pressable
+              style={styles.pauseMenuBtn}
+              onPress={() => { getAudio().play('tap'); onToggleSound(); }}
+            >
+              <Text style={styles.pauseMenuBtnText}>SOUND: {soundEnabled ? 'ON' : 'OFF'}</Text>
             </Pressable>
             <Pressable style={styles.pauseMenuBtn} onPress={onQuitMenu}>
               <Text style={styles.pauseMenuBtnText}>SAVE &amp; QUIT TO MAIN MENU</Text>

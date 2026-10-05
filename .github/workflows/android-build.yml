@@ -150,6 +150,13 @@ jobs:
             echo "- SHA-256: \`$SHA\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Release qualification of the BUILT, merged manifest: package, versions,
+      # target SDK 36, a strict permission allowlist (no microphone / foreground
+      # service from native modules), portrait, non-debuggable, and the
+      # historical signing certificate (upgrade compatibility with build-39).
+      - name: Manifest qualification
+        run: python3 scripts/check-manifest.py "dist-apk/${{ steps.apk.outputs.name }}"
+
       # Blocking since the Expo SDK 54 / RN 0.81 / NDK 27 upgrade: the 64-bit
       # ABIs are 13/13 16 KB-ready (the SDK 52 build failed 13 of 14 libs).
       # Google Play requires 16 KB support for new submissions.
