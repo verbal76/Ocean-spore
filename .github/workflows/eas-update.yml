@@ -1,90 +1,83 @@
 name: EAS Update (OTA)
 
+# MANUAL ONLY. An OTA reaches every installed build on the same runtimeVersion
+# immediately, so it must never fire because someone pushed code.
+#
+# Safety rails:
+#   * workflow_dispatch only (no push trigger)
+#   * typecheck + tests + bundle export must pass first (ci.yml)
+#   * you must retype the current runtimeVersion from app.json; a mismatch
+#     aborts, so an update can't be sent across a native/runtime boundary
+#   * the Expo token is only exposed to the publish step
+#   * inputs go through env vars, never interpolated into shell
+
 on:
-  push:
-    branches:
-      - 'working-branch-ocean-spore'
-    paths-ignore:
-      - 'package.json'
-      - 'package-lock.json'
-      - 'app.json'
-      - 'eas.json'
-      - 'metro.config.js'
-      - 'babel.config.js'
-      - 'tsconfig.json'
-      - '.github/**'
-      - '**/*.md'
-      - 'docs/**'
-      - 'scripts/**'
   workflow_dispatch:
     inputs:
       branch:
-        description: 'EAS update channel/branch (preview | production)'
+        description: 'EAS update branch/channel'
+        type: choice
+        options: [preview, production]
+        default: preview
+      runtime_version:
+        description: 'Confirm app.json runtimeVersion this update targets'
         required: true
-        default: 'preview'
       message:
         description: 'Update message'
         required: false
         default: ''
 
-# This copy of eas-update.yml lives on the default branch (main) so
-# the Actions-UI "Run workflow" button appears. The identical file
-# also lives on working-branch-ocean-spore so push events on that
-# branch auto-trigger OTA publishes. GitHub uses the branch's local
-# copy for push triggers and the default-branch copy for dispatch.
+permissions:
+  contents: read
 
 concurrency:
   group: eas-update-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   update:
     name: Publish OTA update
+    needs: ci
     runs-on: ubuntu-latest
-    env:
-      EXPO_TOKEN: ${{ secrets.OCEAN }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Verify EAS token secret present
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Confirm runtime version
         env:
-          EXPO_TOKEN: ${{ secrets.OCEAN }}
+          CONFIRM: ${{ inputs.runtime_version }}
         run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "::error::OCEAN repo secret is empty or missing."
-            echo "::error::Check it at: https://github.com/verbal76/Ocean-spore/settings/secrets/actions"
+          ACTUAL=$(node -p "require('./app.json').expo.runtimeVersion")
+          if [ "$CONFIRM" != "$ACTUAL" ]; then
+            echo "::error::runtimeVersion is '$ACTUAL' but you confirmed '$CONFIRM'. Aborting."
             exit 1
           fi
-          echo "OCEAN secret resolved (length: ${#EXPO_TOKEN} chars)."
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.OCEAN }}
+          echo "Publishing for runtimeVersion $ACTUAL"
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
 
       - name: Generate build info
         run: node scripts/write-build-info.mjs
 
-      - name: Prepare assets
-        run: npm run prepare-assets
-
       - name: Publish update
         env:
           EXPO_TOKEN: ${{ secrets.OCEAN }}
+          UPDATE_BRANCH: ${{ inputs.branch }}
+          UPDATE_MESSAGE: ${{ inputs.message }}
         run: |
-          BRANCH="${{ github.event.inputs.branch || 'preview' }}"
-          MSG="${{ github.event.inputs.message }}"
-          if [ -z "$MSG" ]; then
-            MSG="$(git log -1 --pretty=%B | head -n1)"
-          fi
-          eas update --non-interactive --branch "$BRANCH" --message "$MSG"
+          [ -n "$EXPO_TOKEN" ] || { echo "::error::OCEAN secret is empty or missing"; exit 1; }
+          MSG="$UPDATE_MESSAGE"
+          [ -n "$MSG" ] || MSG="$(git log -1 --pretty=%s)"
+          eas update --non-interactive --branch "$UPDATE_BRANCH" --message "$MSG"

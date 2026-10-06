@@ -1,0 +1,200 @@
+name: APK Build (GitHub-hosted)
+
+# Builds a standalone release-mode APK on GitHub-hosted runners and names it
+#   OceanSpore-v<build>.apk      (see scripts/version.js)
+#
+# ACTIONS BUDGET POLICY (see CLAUDE.md): this workflow is DELIBERATE-ONLY. It
+# does not run on pushes or on ordinary PR updates. Validate locally first
+# (typecheck, lint, tests, export); spend runner minutes only on a candidate
+# that is actually going to be installed or released:
+#   Actions -> APK Build -> Run workflow (publish = true to also release), or
+#   add the `publish-apk` label to the pull request (clear and re-add it to
+#   build the PR head again)
+#
+# Signing: the Expo prebuild template signs release builds with its bundled
+# debug keystore. That is fine for sideloading but NOT for Google Play, which
+# needs an upload key (owner decision; see docs/RELEASING.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a GitHub Release for this build'
+        type: boolean
+        default: false
+  pull_request:
+    # Only the `publish-apk` label starts a build. Opening or pushing to a PR
+    # does not (the job conditions below skip everything else immediately).
+    types: [labeled]
+
+permissions:
+  contents: read
+
+# Let an in-progress APK build finish; a newer push waits as the single pending
+# run (older pending runs are superseded). Cancelling a 10-minute Gradle build
+# on every push throws away the only signal we have.
+concurrency:
+  group: apk-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    # An unrelated label (anything but publish-apk) must not trigger a build.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'publish-apk'
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build Android APK
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPO_NO_TELEMETRY: '1'
+    outputs:
+      apk-name: ${{ steps.apk.outputs.name }}
+      version-name: ${{ steps.apk.outputs.version }}
+      sha256: ${{ steps.apk.outputs.sha256 }}
+    steps:
+      # On pull requests build exactly the PR head commit, not the synthetic
+      # merge commit, so the published SHA is a real commit on the branch.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # ubuntu-latest ships an Android SDK. android-actions/setup-android@v3
+      # now fails ("Failed to find package 'tools'": the legacy package is gone
+      # from Google's repository), so just accept licenses and let Gradle
+      # fetch what it needs.
+      - name: Accept Android SDK licenses
+        run: |
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
+          yes | "$SDKM" --licenses > /dev/null || true
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate build info
+        run: node scripts/write-build-info.mjs
+
+      - name: Generate android/ project (expo prebuild)
+        run: npx expo prebuild --platform android --clean
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+
+      - name: Name and verify APK
+        id: apk
+        run: |
+          set -euo pipefail
+          SRC=$(find android/app/build/outputs/apk/release -name '*.apk' -print -quit)
+          [ -n "$SRC" ] || { echo "::error::No APK produced"; exit 1; }
+          NAME=$(node scripts/version.js apk-name)
+          VERSION=$(node scripts/version.js version-name)
+          CODE=$(node scripts/version.js version-code)
+          mkdir -p dist-apk
+          cp "$SRC" "dist-apk/$NAME"
+
+          # The APK itself must carry the identity we are about to publish.
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
+          BADGING=$("$AAPT" dump badging "dist-apk/$NAME")
+          echo "$BADGING" | grep -q "package: name='com.verbal76.oceanspore'" \
+            || { echo "::error::Unexpected package id"; exit 1; }
+          echo "$BADGING" | grep -q "versionCode='$CODE'" \
+            || { echo "::error::versionCode in APK != $CODE"; exit 1; }
+          echo "$BADGING" | grep -q "versionName='$VERSION'" \
+            || { echo "::error::versionName in APK != $VERSION"; exit 1; }
+
+          SHA=$(sha256sum "dist-apk/$NAME" | cut -d' ' -f1)
+          echo "APK: $NAME  versionName=$VERSION versionCode=$CODE"
+          echo "SHA-256: $SHA  ($NAME)"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "### $NAME"
+            echo "- versionName: \`$VERSION\`  versionCode: \`$CODE\`"
+            echo "- source: \`$(git rev-parse HEAD)\`"
+            echo "- SHA-256: \`$SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Release qualification of the BUILT, merged manifest: package, versions,
+      # target SDK 36, a strict permission allowlist (no microphone / foreground
+      # service from native modules), portrait, non-debuggable, and the
+      # historical signing certificate (upgrade compatibility with build-39).
+      - name: Manifest qualification
+        run: python3 scripts/check-manifest.py "dist-apk/${{ steps.apk.outputs.name }}"
+
+      # Blocking since the Expo SDK 54 / RN 0.81 / NDK 27 upgrade: the 64-bit
+      # ABIs are 13/13 16 KB-ready (the SDK 52 build failed 13 of 14 libs).
+      # Google Play requires 16 KB support for new submissions.
+      - name: 16 KB page-size qualification
+        env:
+          ENFORCE_16KB: 'true'
+        run: |
+          set +e
+          python3 scripts/check-16kb.py "dist-apk/${{ steps.apk.outputs.name }}" | tee 16kb.txt
+          STATUS=${PIPESTATUS[0]}
+          { echo '### 16 KB page-size check'; echo '```'; tail -n 40 16kb.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$STATUS" -ne 0 ] && [ "$ENFORCE_16KB" = "true" ]; then exit 1; fi
+          if [ "$STATUS" -ne 0 ]; then echo "::warning::APK is not 16 KB page-size compatible (not enforced yet)"; fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: dist-apk/${{ steps.apk.outputs.name }}
+          # Only handed to the release job (the Release is the durable copy).
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: (github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'publish-apk')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.apk-name }}
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.build.outputs.version-name }}
+          target_commitish: ${{ github.event.pull_request.head.sha || github.sha }}
+          prerelease: true
+          name: Ocean Spore v${{ needs.build.outputs.version-name }} (test candidate)
+          files: ${{ needs.build.outputs.apk-name }}
+          body: |
+            ${{ needs.build.outputs.apk-name }}
+
+            Source: `${{ github.event.pull_request.head.sha || github.sha }}`
+            SHA-256: `${{ needs.build.outputs.sha256 }}`
+
+            Pre-release test candidate: standalone release-mode APK for
+            sideloading (signed with the Expo debug keystore, not a Play
+            upload key). Not an OTA; nothing is pushed to installed apps.
+          token: ${{ secrets.GITHUB_TOKEN }}
