@@ -1,13 +1,15 @@
 name: APK Build (GitHub-hosted)
 
 # Builds a standalone release-mode APK on GitHub-hosted runners and names it
-#   OceanSpore-v<versionName>.apk      (see scripts/version.js)
-# versionName = 1.1.<run number>, versionCode = <run number>.
+#   OceanSpore-v<build>.apk      (see scripts/version.js)
 #
-# Pushes and pull requests BUILD and attach the APK as a workflow artifact.
-# Publishing a GitHub pre-release is a deliberate action, either:
-#   Actions -> APK Build -> Run workflow -> publish = true, or
-#   add the `publish-apk` label to the pull request
+# ACTIONS BUDGET POLICY (see CLAUDE.md): this workflow is DELIBERATE-ONLY. It
+# does not run on pushes or on ordinary PR updates. Validate locally first
+# (typecheck, lint, tests, export); spend runner minutes only on a candidate
+# that is actually going to be installed or released:
+#   Actions -> APK Build -> Run workflow (publish = true to also release), or
+#   add the `publish-apk` label to the pull request (clear and re-add it to
+#   build the PR head again)
 #
 # Signing: the Expo prebuild template signs release builds with its bundled
 # debug keystore. That is fine for sideloading but NOT for Google Play, which
@@ -21,24 +23,9 @@ on:
         type: boolean
         default: false
   pull_request:
-    # `labeled` lets the `publish-apk` label act as the deliberate "build this
-    # and publish a pre-release" action; other labels are ignored (see jobs).
-    types: [opened, synchronize, reopened, labeled]
-  push:
-    branches:
-      - working-branch-ocean-spore
-    paths:
-      - 'package.json'
-      - 'app.json'
-      - 'app.config.js'
-      - 'eas.json'
-      - 'babel.config.js'
-      - 'metro.config.js'
-      - 'plugins/**'
-      - 'assets/**'
-      - 'src/**'
-      - 'App.tsx'
-      - '.github/workflows/android-build.yml'
+    # Only the `publish-apk` label starts a build. Opening or pushing to a PR
+    # does not (the job conditions below skip everything else immediately).
+    types: [labeled]
 
 permissions:
   contents: read
@@ -53,7 +40,7 @@ concurrency:
 jobs:
   ci:
     # An unrelated label (anything but publish-apk) must not trigger a build.
-    if: github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'publish-apk'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'publish-apk'
     uses: ./.github/workflows/ci.yml
 
   build:
@@ -77,6 +64,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - uses: actions/setup-java@v4
         with:
@@ -165,7 +153,7 @@ jobs:
           ENFORCE_16KB: 'true'
         run: |
           set +e
-          python3 scripts/check-16kb.py "dist-apk/${{ steps.apk.outputs.name }}" --json dist-apk/16kb-report.json | tee 16kb.txt
+          python3 scripts/check-16kb.py "dist-apk/${{ steps.apk.outputs.name }}" | tee 16kb.txt
           STATUS=${PIPESTATUS[0]}
           { echo '### 16 KB page-size check'; echo '```'; tail -n 40 16kb.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           if [ "$STATUS" -ne 0 ] && [ "$ENFORCE_16KB" = "true" ]; then exit 1; fi
@@ -176,15 +164,9 @@ jobs:
         with:
           name: ${{ steps.apk.outputs.name }}
           path: dist-apk/${{ steps.apk.outputs.name }}
-          retention-days: 14
+          # Only handed to the release job (the Release is the durable copy).
+          retention-days: 1
           if-no-files-found: error
-
-      - name: Upload 16 KB report
-        uses: actions/upload-artifact@v4
-        with:
-          name: 16kb-report-${{ steps.apk.outputs.version }}
-          path: dist-apk/16kb-report.json
-          retention-days: 14
 
   release:
     name: Publish GitHub Release

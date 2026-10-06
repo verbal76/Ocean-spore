@@ -12,7 +12,8 @@
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "version-info": "node scripts/version.js apk-name",
-    "lint": "eslint . --max-warnings=0"
+    "lint": "eslint . --max-warnings=0",
+    "verify": "python3 scripts/check-brand.py && python3 scripts/check-audio.py && npm run typecheck && node scripts/check-assets.mjs && npm run lint && npm test && node scripts/version.js apk-name"
   },
   "dependencies": {
     "expo": "~54.0.37",

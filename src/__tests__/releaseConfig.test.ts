@@ -67,11 +67,11 @@ describe('no accidental OTA publication', () => {
 
 describe('APK publishing is deliberate', () => {
   const apk = wf('android-build.yml');
-  test('a plain push or PR only builds; the release job needs dispatch(publish) or the publish-apk label', () => {
+  test('the release job needs dispatch(publish) or the publish-apk label', () => {
     const cond: string = apk.jobs.release.if;
     expect(cond).toMatch(/workflow_dispatch/);
     expect(cond).toMatch(/publish-apk/);
-    expect(cond).not.toMatch(/event_name == 'push'\s*\)?\s*$/);
+    expect(cond).not.toMatch(/event_name == 'push'/);
   });
   test('default permissions are read-only; only the release job may write', () => {
     expect(apk.permissions).toEqual({ contents: 'read' });
@@ -84,6 +84,37 @@ describe('APK publishing is deliberate', () => {
     expect(steps).toContain('16 KB page-size qualification');
     const sixteen = apk.jobs.build.steps.find((s: any) => s.name === '16 KB page-size qualification');
     expect(sixteen.env.ENFORCE_16KB).toBe('true');
+  });
+});
+
+describe('Actions budget policy (nothing builds on a plain push)', () => {
+  const apk = wf('android-build.yml');
+  const ci = wf('ci.yml');
+  const hasKey = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o ?? {}, k);
+
+  test('the APK build has no push trigger and PRs only act on a label', () => {
+    expect(hasKey(apk.on, 'push')).toBe(false);
+    expect(apk.on.pull_request.types).toEqual(['labeled']);
+    expect(apk.jobs.ci.if).toMatch(/workflow_dispatch/);
+    expect(apk.jobs.ci.if).toMatch(/publish-apk/);
+  });
+  test('the shared CI workflow is only called or dispatched, never push/PR triggered', () => {
+    expect(hasKey(ci.on, 'push')).toBe(false);
+    expect(hasKey(ci.on, 'pull_request')).toBe(false);
+  });
+  test('prune-artifacts has no schedule or workflow_run trigger', () => {
+    const prune = wf('prune-artifacts.yml');
+    expect(Object.keys(prune.on)).toEqual(['workflow_dispatch']);
+  });
+  test('the APK artifact is short-lived and npm is cached', () => {
+    const up = apk.jobs.build.steps.find((s: any) => s.uses?.startsWith('actions/upload-artifact'));
+    expect(up.with['retention-days']).toBeLessThanOrEqual(1);
+    const node = apk.jobs.build.steps.find((s: any) => s.uses?.startsWith('actions/setup-node'));
+    expect(node.with.cache).toBe('npm');
+  });
+  test('the policy is recorded in CLAUDE.md and `npm run verify` exists', () => {
+    expect(read('CLAUDE.md')).toMatch(/budget policy/i);
+    expect(JSON.parse(read('package.json')).scripts.verify).toMatch(/jest|npm test/);
   });
 });
 

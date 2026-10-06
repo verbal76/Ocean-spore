@@ -15,13 +15,15 @@ before uploading it, and records the file's SHA-256 in the run summary.
 
 ## Building an APK
 
-Push or open a PR: `APK Build (GitHub-hosted)` runs typecheck, tests, a bundle
-export, then Gradle, and attaches `OceanSpore-v<ver>.apk` as a workflow
-artifact (14 days). Nothing is published automatically.
+Pushes and PR updates build **nothing** (Actions budget policy, `CLAUDE.md`).
+Validate locally with `npm run verify` (same checks as `ci.yml`). When a
+candidate is actually needed for a device or release, start the build
+deliberately; it runs `ci.yml`, then Gradle, the manifest and 16 KB gates, and
+keeps the APK artifact for 1 day (the Release is the durable copy).
 
-To publish a GitHub Release: Actions -> APK Build -> Run workflow ->
-`publish = true`, or add the **`publish-apk`** label to the pull request, which builds the PR
-head commit and publishes the same way (other labels do nothing). The release is marked **pre-release**; the tag is
+To build and publish a GitHub Release: Actions -> APK Build -> Run workflow ->
+`publish = true`, or add the **`publish-apk`** label to the pull request (clear and re-add
+it to rebuild), which builds the PR head commit and publishes (other labels do nothing). The release is marked **pre-release**; the tag is
 `v<versionName>` and points at the built commit.
 
 ## OTA updates (`eas-update.yml`)

@@ -2,6 +2,8 @@ name: CI
 
 # Fast checks that must pass before anything is built or published.
 # Reusable: android-build.yml and eas-update.yml call it with `uses:`.
+# Deliberately NOT triggered by push / pull_request (Actions budget policy,
+# see CLAUDE.md): the same commands run locally via `npm run verify`.
 
 on:
   workflow_call:
@@ -25,6 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
