@@ -1,7 +1,7 @@
 name: CI
 
 # Fast checks that must pass before anything is built or published.
-# Reusable: android-build.yml and eas-update.yml call it with `uses:`.
+# Reusable: native-build.yml and eas-update.yml call it with `uses:`.
 # Deliberately NOT triggered by push / pull_request (Actions budget policy,
 # see CLAUDE.md): the same commands run locally via `npm run verify`.
 
@@ -78,3 +78,7 @@ jobs:
         run: node scripts/write-build-info.mjs && npx expo export --platform android --output-dir dist-ci
         env:
           EXPO_NO_TELEMETRY: '1'
+
+      # Desktop work must never reach Android: no desktop code or glyph assets in the bundle.
+      - name: Android bundle isolation (no desktop code or assets)
+        run: node scripts/check-android-isolation.mjs dist-ci

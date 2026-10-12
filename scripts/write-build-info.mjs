@@ -37,7 +37,6 @@ const runtimeVersion = JSON.parse(readFileSync('app.json', 'utf8')).expo.runtime
 const provenance = {
   commit, branch, dirty, builtAt,
   appVersion: ver.versionName, versionCode: ver.versionCode,
-  platform: 'android',
   buildConfiguration: process.env.CI ? 'release (ci)' : 'local',
   runtimeVersion,
   toolchain: {

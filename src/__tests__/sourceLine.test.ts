@@ -144,7 +144,7 @@ describe('release immutability (build numbers are not reused)', () => {
     expect(unused('42').status).toBe(0);
   });
   test('the APK build runs the check before any expensive step, and OTA publishing is gated to the line', () => {
-    const apk = JSON.parse(JSON.stringify(wfSteps('android-build.yml', 'build')));
+    const apk = JSON.parse(JSON.stringify(wfSteps('native-build.yml', 'build-android')));
     const names = apk.map((s: any) => s.name);
     expect(names.indexOf('Build number valid and unused')).toBeGreaterThan(-1);
     expect(names.indexOf('Build number valid and unused')).toBeLessThan(names.indexOf('Install dependencies'));
@@ -211,5 +211,51 @@ describe('branch audit is separate: reports, never gates', () => {
   test('the real repository ledger is currently clean', () => {
     const r = spawnSync('python3', [join(ROOT, 'scripts/audit-branches.py')], { cwd: ROOT, encoding: 'utf8' });
     expect(r.stdout).toMatch(/branch audit:/);
+  });
+});
+
+describe('coordinated multi-platform manifests (one SHA, no partial releases)', () => {
+  const { mkdtempSync: mk, writeFileSync: wr, readFileSync: rd, rmSync: rm } = require('fs');
+  const part = (platform: string, over: Record<string, unknown> = {}) => ({
+    schema: 2, gameTitle: 'Ocean Spore', buildNumber: 42, sourceCommit: 'a'.repeat(40), appVersion: '42', versionCode: 42,
+    runtimeVersion: '2.1.0', toolchain: { node: 'v22' },
+    artifacts: [{ platform, file: `Ocean Spore Build 42 ${platform}.bin`, bytes: 3, sha256: platform.padEnd(64, '0') }], ...over,
+  });
+  const merge = (parts: object[], extra: string[] = []) => {
+    const d = mk(join(tmpdir(), 'merge-'));
+    const files = parts.map((p, i) => { const f = join(d, `p${i}.json`); wr(f, JSON.stringify(p)); return f; });
+    const r = spawnSync('node', [join(ROOT, 'scripts/merge-manifests.mjs'), '--out', join(d, 'm.json'), '--sums', join(d, 's.txt'), ...extra, ...files], { encoding: 'utf8' });
+    const merged = r.status === 0 ? JSON.parse(rd(join(d, 'm.json'), 'utf8')) : null;
+    const sums = r.status === 0 ? rd(join(d, 's.txt'), 'utf8') : '';
+    rm(d, { recursive: true, force: true });
+    return { r, merged, sums };
+  };
+  const SHA = 'a'.repeat(40);
+
+  test('three platforms from one SHA merge into one manifest + checksums', () => {
+    const { r, merged, sums } = merge([part('android'), part('windows'), part('linux')], ['--expect-sha', SHA, '--expect-platforms', 'android,windows,linux']);
+    expect(r.status).toBe(0);
+    expect(merged.artifacts.map((a: any) => a.platform).sort()).toEqual(['android', 'linux', 'windows']);
+    expect(sums.trim().split('\n')).toHaveLength(3);
+  });
+  test('a part built from a different commit is refused (no silent source substitution)', () => {
+    const r = merge([part('android'), part('linux', { sourceCommit: 'b'.repeat(40) })], ['--expect-sha', SHA]);
+    expect(r.r.status).toBe(1);
+    expect(r.r.stderr).toMatch(/disagree on sourceCommit/);
+  });
+  test('the approved SHA must match', () => {
+    expect(merge([part('android')], ['--expect-sha', 'c'.repeat(40)]).r.status).toBe(1);
+  });
+  test('a missing platform is a partial release and is refused', () => {
+    const r = merge([part('android')], ['--expect-platforms', 'android,windows,linux']);
+    expect(r.r.status).toBe(1);
+    expect(r.r.stderr).toMatch(/partial coordinated release/);
+  });
+  test('an unrequested extra platform is refused too', () => {
+    expect(merge([part('android'), part('linux')], ['--expect-platforms', 'android']).r.status).toBe(1);
+  });
+  test('parts with different build numbers or duplicate platforms are refused', () => {
+    expect(merge([part('android'), part('linux', { buildNumber: 43 })]).r.status).toBe(1);
+    expect(merge([part('android'), part('android')]).r.status).toBe(1);
   });
 });

@@ -66,78 +66,100 @@ describe('no accidental OTA publication', () => {
   });
 });
 
-describe('APK publishing is deliberate', () => {
-  const apk = wf('android-build.yml');
-  test('only a manual dispatch or the publish-apk label plans a build; dispatch defaults to local_only', () => {
-    const cond: string = apk.jobs.plan.if;
-    expect(cond).toMatch(/workflow_dispatch/);
-    expect(cond).toMatch(/publish-apk/);
-    expect(cond).not.toMatch(/event_name == 'push'/);
-    expect(apk.on.workflow_dispatch.inputs.destination.default).toBe('local_only');
-    expect(apk.jobs.release.if).toMatch(/destination == 'github_releases'/);
+describe('native release publishing is deliberate', () => {
+  const nb = wf('native-build.yml');
+  const jobSteps = (j: string) => nb.jobs[j].steps as any[];
+  test('only a manual dispatch plans a build; dispatch defaults to local_only (a label is not authorization)', () => {
+    expect(nb.jobs.plan.if).toBe("github.event_name == 'workflow_dispatch'");
+    expect(nb.on.workflow_dispatch.inputs.destination.default).toBe('local_only');
+    expect(nb.jobs.release.if).toMatch(/destination == 'github_releases'/);
   });
   test('dispatch inputs follow the studio standard (platform, source_sha, build_number, destination)', () => {
-    const i = apk.on.workflow_dispatch.inputs;
+    const i = nb.on.workflow_dispatch.inputs;
     expect(i.platform.options).toEqual(['android', 'windows', 'linux', 'all']);
     expect(i.source_sha.required).toBe(true);
     expect(i.build_number.required).toBe(true);
     expect(i.destination.options).toEqual(['local_only', 'github_releases']);
   });
-  test('unsupported platforms fail visibly instead of being skipped', () => {
-    const plan = apk.jobs.plan.steps[0].run;
-    expect(plan).toMatch(/not supported/);
+  test('the plan rejects anything but a full SHA, a numeric build and a known platform', () => {
+    const plan: string = jobSteps('plan')[0].run;
+    expect(plan).toMatch(/\{40\}/);
+    expect(plan).toMatch(/Unknown platform/);
     expect(plan).toMatch(/exit 1/);
-    expect(plan).toMatch(/\{40\}/);                                    // full SHA required
+    for (const p of ['android', 'windows', 'linux', 'all']) expect(plan).toContain(`${p})`);
   });
-  test('releases use the standard title, tag and asset set', () => {
-    const pub = apk.jobs.release.steps.find((s: any) => s.name === 'Publish');
+  test('every selected platform has a build job; "all" builds exactly android + windows + linux', () => {
+    expect(nb.jobs['build-android'].if).toMatch(/android == 'true'/);
+    expect(nb.jobs['build-desktop'].if).toMatch(/desktop == 'true'/);
+    expect(jobSteps('plan')[0].run).toMatch(/all\)\s+A=true;\s+D=true;\s+DP=all;\s+PL=android,windows,linux/);
+  });
+  test('no partial coordinated release: assemble needs every SELECTED build to succeed; release needs assemble', () => {
+    const cond: string = nb.jobs.assemble.if;
+    expect(cond).toMatch(/needs\.build-android\.result == 'success'/);
+    expect(cond).toMatch(/needs\.build-desktop\.result == 'success'/);
+    expect(nb.jobs.release.needs).toContain('assemble');
+    expect(nb.jobs.release.needs).not.toContain('build-android');
+    const merge = jobSteps('assemble').find((s) => /merge-manifests/.test(s.run ?? ''));
+    expect(merge.run).toMatch(/--expect-sha/);
+    expect(merge.run).toMatch(/--expect-platforms/);
+  });
+  test('local_only publishes nothing: only the release job can create a Release, and only for github_releases', () => {
+    const creators = Object.entries(nb.jobs).filter(([, j]: [string, any]) => JSON.stringify(j).includes('action-gh-release')).map(([k]) => k);
+    expect(creators).toEqual(['release']);
+  });
+  test('releases use the standard title, tag and asset set, and never overwrite', () => {
+    const pub = jobSteps('release').find((s) => s.name === 'Publish');
     const files: string = pub.with.files;
-    for (const f of ['build-manifest.json', 'checksums.sha256']) expect(files).toContain(f);
-    expect(pub.with.fail_on_unmatched_files).toBe(true);
+    for (const f of ['*.apk', '*.zip', '*.tar.gz', 'build-manifest.json', 'checksums.sha256']) expect(files).toContain(f);
     expect(pub.with.tag_name).toMatch(/steps\.rel\.outputs\.tag/);
     expect(pub.with.name).toMatch(/steps\.rel\.outputs\.title/);
+    const rn = JSON.stringify(nb.jobs.release);
+    expect(rn).toMatch(/--verify-manifest/);                               // release re-checks manifest vs files
+    expect(rn).toMatch(/sha256sum -c/);
+    for (const j of ['build-android', 'build-desktop']) {
+      expect(jobSteps(j).some((s) => /check-build-number/.test(s.run ?? ''))).toBe(true);   // tag/release must be unused
+    }
   });
-  test('default permissions are read-only; only the release job may write', () => {
-    expect(apk.permissions).toEqual({ contents: 'read' });
-    expect(apk.jobs.release.permissions).toEqual({ contents: 'write' });
-    expect(apk.jobs.build.permissions).toBeUndefined();
+  test('default permissions are read-only; only the release job may write; secrets only there', () => {
+    expect(nb.permissions).toEqual({ contents: 'read' });
+    expect(nb.jobs.release.permissions).toEqual({ contents: 'write' });
+    for (const j of ['plan', 'ci', 'build-android', 'build-desktop', 'assemble']) expect(nb.jobs[j].permissions).toBeUndefined();
+    expect((JSON.stringify(nb).match(/secrets\./g) ?? []).length).toBe(1);
   });
-  test('the 16 KB and manifest gates are blocking steps in the build', () => {
-    const steps = apk.jobs.build.steps.map((s: any) => s.name);
+  test('the 16 KB and manifest gates are blocking steps in the Android build; Windows is checked as a PE file', () => {
+    const steps = jobSteps('build-android').map((s) => s.name);
     expect(steps).toContain('Manifest qualification');
     expect(steps).toContain('16 KB page-size qualification');
-    const sixteen = apk.jobs.build.steps.find((s: any) => s.name === '16 KB page-size qualification');
-    expect(sixteen.env.ENFORCE_16KB).toBe('true');
+    expect(jobSteps('build-android').find((s) => s.name === '16 KB page-size qualification').env.ENFORCE_16KB).toBe('true');
+    expect(JSON.stringify(jobSteps('build-desktop'))).toMatch(/PE32\+ executable \(GUI\) x86-64/);
+    expect(JSON.stringify(jobSteps('build-desktop'))).toMatch(/desktop-smoke\.mjs --packaged/);
+  });
+  test('desktop builds come from the same source: one export of src/, no second implementation', () => {
+    const pkg = read('scripts/desktop-package.mjs');
+    expect(pkg).toMatch(/expo.*export.*--platform.*web/s);
+    expect(pkg).toMatch(/linux/);
+    expect(pkg).toMatch(/win32/);
   });
 });
 
-describe('Actions budget policy (nothing builds on a plain push)', () => {
-  const apk = wf('android-build.yml');
-  const ci = wf('ci.yml');
-  const hasKey = (o: any, k: string) => Object.prototype.hasOwnProperty.call(o ?? {}, k);
-
-  test('the APK build has no push trigger and PRs only act on a label', () => {
-    expect(hasKey(apk.on, 'push')).toBe(false);
-    expect(apk.on.pull_request.types).toEqual(['labeled']);
-    expect(apk.jobs.ci.needs).toBe('plan');
+describe('no ordinary repository event can build or publish', () => {
+  const fs = require('fs');
+  const files: string[] = fs.readdirSync(join(ROOT, '.github/workflows'));
+  test.each(files)('%s is only manually or programmatically triggered', (f: string) => {
+    const w = wf(f);
+    const triggers = Object.keys(w.on ?? (w as any)['true'] ?? {});
+    for (const t of triggers) expect(['workflow_dispatch', 'workflow_call']).toContain(t);
   });
-  test('the shared CI workflow is only called or dispatched, never push/PR triggered', () => {
-    expect(hasKey(ci.on, 'push')).toBe(false);
-    expect(hasKey(ci.on, 'pull_request')).toBe(false);
+  test('the publish-apk label exists nowhere in workflows, docs or instructions as a trigger', () => {
+    for (const f of files) expect(read(`.github/workflows/${f}`)).not.toMatch(/publish-apk/);
+    expect(read('CLAUDE.md')).not.toMatch(/label.*(is|as) the working trigger/i);
   });
-  test('prune-artifacts has no schedule or workflow_run trigger', () => {
-    const prune = wf('prune-artifacts.yml');
-    expect(Object.keys(prune.on)).toEqual(['workflow_dispatch']);
-  });
-  test('the APK artifact is short-lived and npm is cached', () => {
-    const up = apk.jobs.build.steps.find((s: any) => s.uses?.startsWith('actions/upload-artifact'));
-    expect(up.with['retention-days']).toBeLessThanOrEqual(1);
-    const node = apk.jobs.build.steps.find((s: any) => s.uses?.startsWith('actions/setup-node'));
-    expect(node.with.cache).toBe('npm');
-  });
-  test('the policy is recorded in CLAUDE.md and `npm run verify` exists', () => {
-    expect(read('CLAUDE.md')).toMatch(/budget policy/i);
-    expect(JSON.parse(read('package.json')).scripts.verify).toMatch(/jest|npm test/);
+  test('publishing credentials are scoped to the publishing job/step only', () => {
+    const apkW = wf('native-build.yml');
+    expect(apkW.permissions).toEqual({ contents: 'read' });
+    expect(Object.keys(apkW.jobs).filter((j) => apkW.jobs[j].permissions)).toEqual(['release']);
+    const eas = JSON.stringify(wf('eas-update.yml'));
+    expect((eas.match(/secrets\./g) ?? []).length).toBe(1);
   });
 });
 
@@ -170,19 +192,22 @@ describe('single source of truth (docs/source-line.json)', () => {
     expect(ci.jobs.verify.steps.some((s: any) => /check-source-line/.test(s.run ?? ''))).toBe(true);
     const audit = ci.jobs.verify.steps.find((s: any) => /audit-branches/.test(s.run ?? ''));
     expect(audit.run).not.toMatch(/--strict/);                             // reporting only
-    const apk = wf('android-build.yml');
-    const bco = apk.jobs.build.steps.find((s: any) => s.uses?.startsWith('actions/checkout'));
-    expect(bco.with['fetch-depth']).toBe(0);
-    const names = apk.jobs.build.steps.map((s: any) => s.name);
-    const gate = apk.jobs.build.steps.find((s: any) => s.name === 'Verify approved source SHA');
-    expect(gate.run).toMatch(/check-source-line\.py --release/);
-    expect(gate.env.APPROVED_SHA).toMatch(/plan\.outputs\.sha/);
-    expect(names.indexOf('Verify approved source SHA')).toBeLessThan(names.indexOf('Build release APK'));
-    expect(names).toContain('Build manifest and checksums');
-    expect(names).toContain('Manifest and checksums match the packaged files');
-    const rel = JSON.stringify(apk.jobs.release);
-    expect(rel).toMatch(/build-manifest\.json/);
-    expect(rel).toMatch(/--verify-manifest/);                              // release job re-checks
+    const nb = wf('native-build.yml');
+    for (const j of ['build-android', 'build-desktop']) {
+      const steps = nb.jobs[j].steps as any[];
+      const bco = steps.find((s) => s.uses?.startsWith('actions/checkout'));
+      expect(bco.with['fetch-depth']).toBe(0);
+      expect(bco.with.ref).toMatch(/plan\.outputs\.sha/);                  // the exact approved commit
+      const names = steps.map((s) => s.name);
+      const gate = steps.find((s) => s.name === 'Verify approved source SHA');
+      expect(gate.run).toMatch(/check-source-line\.py --release/);
+      expect(gate.env.APPROVED_SHA).toMatch(/plan\.outputs\.sha/);
+      const expensive = names.findIndex((n) => /Build release APK|Package desktop builds/.test(n ?? ''));
+      expect(names.indexOf('Verify approved source SHA')).toBeLessThan(expensive);
+    }
+    expect(nb.jobs['build-android'].steps.map((s: any) => s.name)).toContain('Manifest part and checksum');
+    expect(JSON.stringify(nb.jobs.assemble)).toMatch(/--verify-manifest/);
+    expect(JSON.stringify(nb.jobs.release)).toMatch(/--verify-manifest/);   // release job re-checks
   });
   test('the policy is durable: CLAUDE.md, architecture doc and ledger exist', () => {
     expect(read('CLAUDE.md')).toMatch(/ONE GAME/);

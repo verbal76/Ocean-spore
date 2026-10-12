@@ -5,7 +5,8 @@ describe('version identity', () => {
   test('build 40: versionName, versionCode, names and tag all agree (studio standard naming)', () => {
     expect(resolveVersion(40)).toEqual({
       versionName: '40', versionCode: 40, buildNumber: 40, gameTitle: 'Ocean Spore',
-      apkFileName: 'Ocean Spore Build 40 APK.apk', releaseTitle: 'Ocean Spore Build 40', releaseTag: 'build-40',
+      apkFileName: 'Ocean Spore Build 40 APK.apk', exeFileName: 'Ocean Spore Build 40 EXE.zip',
+      linuxFileName: 'Ocean Spore Build 40 Linux.tar.gz', releaseTitle: 'Ocean Spore Build 40', releaseTag: 'build-40',
     });
   });
 

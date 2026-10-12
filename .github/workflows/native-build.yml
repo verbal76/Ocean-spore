@@ -1,0 +1,432 @@
+name: Native Build (Android / Windows / Linux)
+
+# The one manually triggered coordinated build (studio standard v2.0, sec. 5-9).
+# It builds the selected platform(s) from ONE exact, approved source SHA under ONE
+# build number and names the output
+#   Ocean Spore Build NN APK.apk
+#   Ocean Spore Build NN EXE.zip         (Windows x86-64)
+#   Ocean Spore Build NN Linux.tar.gz    (native Linux x86-64)
+#   build-manifest.json, checksums.sha256
+# and only when destination = github_releases publishes ONE GitHub Release
+# "Ocean Spore Build NN" (immutable tag build-NN). A coordinated release is all or
+# nothing: if any selected platform fails, nothing is assembled or published.
+#
+# ACTIONS BUDGET POLICY (see CLAUDE.md): DELIBERATE-ONLY. Nothing else can start it:
+# labels, pushes, merges, tags and version changes are NOT triggers. Validate locally
+# first (`npm run verify`, `node scripts/desktop-package.mjs`, `node scripts/desktop-smoke.mjs`).
+#   Actions -> Native Build -> Run workflow (platform, source_sha, build_number, destination)
+#
+# Android signing: the Expo prebuild template signs release builds with its bundled
+# debug keystore. Fine for sideloading, NOT for distribution or Google Play (owner
+# decision; docs/SIGNING.md). Desktop packages are unsigned.
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Target platform(s)'
+        type: choice
+        options: [android, windows, linux, all]
+        default: all
+      source_sha:
+        description: 'Exact approved commit (full 40-character SHA)'
+        type: string
+        required: true
+      build_number:
+        description: 'Coordinated build number (must equal oceanSpore.build in package.json at that SHA)'
+        type: string
+        required: true
+      destination:
+        description: 'Where the result goes'
+        type: choice
+        options: [local_only, github_releases]
+        default: local_only
+
+permissions:
+  contents: read
+
+# Let an in-progress build finish; a newer request waits as the single pending run.
+concurrency:
+  group: native-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Cheap (seconds): decide exactly what is being asked for, or fail visibly.
+  plan:
+    name: Plan the build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+      destination: ${{ steps.p.outputs.destination }}
+      build_number: ${{ steps.p.outputs.build_number }}
+      android: ${{ steps.p.outputs.android }}
+      desktop: ${{ steps.p.outputs.desktop }}
+      desktop_platform: ${{ steps.p.outputs.desktop_platform }}
+      platforms: ${{ steps.p.outputs.platforms }}
+    steps:
+      - id: p
+        env:
+          IN_PLATFORM: ${{ inputs.platform }}
+          IN_SHA: ${{ inputs.source_sha }}
+          IN_BUILD: ${{ inputs.build_number }}
+          IN_DEST: ${{ inputs.destination }}
+        run: |
+          set -euo pipefail
+          [[ "$IN_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::source_sha must be a full 40-character lowercase SHA"; exit 1; }
+          [[ "$IN_BUILD" =~ ^[0-9]+$ ]] || { echo "::error::build_number must be a positive integer"; exit 1; }
+          case "$IN_PLATFORM" in
+            android) A=true;  D=false; DP=none;    PL=android ;;
+            windows) A=false; D=true;  DP=windows; PL=windows ;;
+            linux)   A=false; D=true;  DP=linux;   PL=linux ;;
+            all)     A=true;  D=true;  DP=all;     PL=android,windows,linux ;;
+            *) echo "::error::Unknown platform '$IN_PLATFORM'. Nothing was built."; exit 1 ;;
+          esac
+          {
+            echo "sha=$IN_SHA"; echo "destination=$IN_DEST"; echo "build_number=$IN_BUILD"
+            echo "android=$A"; echo "desktop=$D"; echo "desktop_platform=$DP"; echo "platforms=$PL"
+          } >> "$GITHUB_OUTPUT"
+          echo "Plan: $PL @ $IN_SHA -> $IN_DEST (build $IN_BUILD)"
+
+  ci:
+    needs: plan
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.plan.outputs.sha }}
+
+  build-android:
+    name: Build Android APK
+    needs: [plan, ci]
+    if: needs.plan.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      # Build exactly the approved commit.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Releases are immutable and one build number = one source (before any expensive step).
+      - name: Build number valid and unused
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REQUESTED_BUILD: ${{ needs.plan.outputs.build_number }}
+        run: scripts/check-build-number.sh
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # ubuntu-latest ships an Android SDK. android-actions/setup-android@v3
+      # now fails ("Failed to find package 'tools'": the legacy package is gone
+      # from Google's repository), so just accept licenses and let Gradle
+      # fetch what it needs.
+      - name: Accept Android SDK licenses
+        run: |
+          SDKM=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | sort | tail -1)
+          yes | "$SDKM" --licenses > /dev/null || true
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # The approved source is the exact commit this run was asked to build (the
+      # `source_sha` input). Fail early unless the checkout IS that commit and it
+      # belongs to the authorized development line. (Unrelated branch activity is
+      # reported by audit-branches.py, never gating.)
+      - name: Verify approved source SHA
+        env:
+          APPROVED_SHA: ${{ needs.plan.outputs.sha }}
+          BUILD_REF: ${{ github.head_ref || github.ref_name }}
+        run: python3 scripts/check-source-line.py --release
+
+      - name: Generate build info and provenance
+        run: node scripts/write-build-info.mjs
+
+      - name: Generate android/ project (expo prebuild)
+        run: npx expo prebuild --platform android --clean
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-
+
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx4g"
+
+      - name: Name and verify APK
+        id: apk
+        run: |
+          set -euo pipefail
+          SRC=$(find android/app/build/outputs/apk/release -name '*.apk' -print -quit)
+          [ -n "$SRC" ] || { echo "::error::No APK produced"; exit 1; }
+          NAME=$(node scripts/version.js apk-name)
+          VERSION=$(node scripts/version.js version-name)
+          CODE=$(node scripts/version.js version-code)
+          mkdir -p dist-apk
+          cp "$SRC" "dist-apk/$NAME"
+
+          # The APK itself must carry the identity we are about to publish.
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort | tail -1)
+          BADGING=$("$AAPT" dump badging "dist-apk/$NAME")
+          echo "$BADGING" | grep -q "package: name='com.verbal76.oceanspore'" \
+            || { echo "::error::Unexpected package id"; exit 1; }
+          echo "$BADGING" | grep -q "versionCode='$CODE'" \
+            || { echo "::error::versionCode in APK != $CODE"; exit 1; }
+          echo "$BADGING" | grep -q "versionName='$VERSION'" \
+            || { echo "::error::versionName in APK != $VERSION"; exit 1; }
+
+          SHA=$(sha256sum "dist-apk/$NAME" | cut -d' ' -f1)
+          echo "APK: $NAME  versionName=$VERSION versionCode=$CODE"
+          echo "SHA-256: $SHA  ($NAME)"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          {
+            echo "### $NAME"
+            echo "- versionName: \`$VERSION\`  versionCode: \`$CODE\`"
+            echo "- source: \`$(git rev-parse HEAD)\`"
+            echo "- SHA-256: \`$SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Release qualification of the BUILT, merged manifest: package, versions,
+      # target SDK 36, a strict permission allowlist (no microphone / foreground
+      # service from native modules), portrait, non-debuggable, and the
+      # historical signing certificate (upgrade compatibility with build-39).
+      - name: Manifest qualification
+        run: python3 scripts/check-manifest.py "dist-apk/${{ steps.apk.outputs.name }}"
+
+      # Blocking since the Expo SDK 54 / RN 0.81 / NDK 27 upgrade: the 64-bit
+      # ABIs are 13/13 16 KB-ready (the SDK 52 build failed 13 of 14 libs).
+      # Google Play requires 16 KB support for new submissions.
+      - name: 16 KB page-size qualification
+        env:
+          ENFORCE_16KB: 'true'
+        run: |
+          set +e
+          python3 scripts/check-16kb.py "dist-apk/${{ steps.apk.outputs.name }}" | tee 16kb.txt
+          STATUS=${PIPESTATUS[0]}
+          { echo '### 16 KB page-size check'; echo '```'; tail -n 40 16kb.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$STATUS" -ne 0 ] && [ "$ENFORCE_16KB" = "true" ]; then exit 1; fi
+          if [ "$STATUS" -ne 0 ]; then echo "::warning::APK is not 16 KB page-size compatible (not enforced yet)"; fi
+
+      # One source SHA -> every platform artifact. Fails if the tree built is not
+      # exactly the approved commit, or the APK does not embed that SHA.
+      - name: Manifest part and checksum
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.sha }}
+        run: node scripts/release-manifest.mjs "dist-apk/${{ steps.apk.outputs.name }}" dist-apk/manifest-android.json dist-apk/checksums-android.sha256 --platform android
+
+      - name: Upload Android build files
+        uses: actions/upload-artifact@v4
+        with:
+          name: part-android
+          path: |
+            dist-apk/${{ steps.apk.outputs.name }}
+            dist-apk/manifest-android.json
+          retention-days: 1
+          if-no-files-found: error
+
+  build-desktop:
+    name: Build Windows / Linux packages
+    needs: [plan, ci]
+    if: needs.plan.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXPO_NO_TELEMETRY: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      - name: Build number valid and unused
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REQUESTED_BUILD: ${{ needs.plan.outputs.build_number }}
+        run: scripts/check-build-number.sh
+
+      - name: Verify approved source SHA
+        env:
+          APPROVED_SHA: ${{ needs.plan.outputs.sha }}
+          BUILD_REF: ${{ github.head_ref || github.ref_name }}
+        run: python3 scripts/check-source-line.py --release
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ hashFiles('desktop/package-lock.json') }}
+
+      - name: Install dependencies (game and desktop shell)
+        run: |
+          npm ci --no-audit --no-fund
+          npm ci --no-audit --no-fund --prefix desktop
+
+      # The game is the unmodified Expo web export of the SAME src/ the APK is built
+      # from; the shell only hosts it (desktop/README.md).
+      - name: Package desktop builds
+        env:
+          DESKTOP_PLATFORM: ${{ needs.plan.outputs.desktop_platform }}
+        run: node scripts/desktop-package.mjs --platform "$DESKTOP_PLATFORM" --out dist-desktop
+
+      - name: Windows package is a real x86-64 PE executable
+        if: needs.plan.outputs.desktop_platform != 'linux'
+        run: |
+          EXE=$(find dist-desktop/packages -name 'OceanSpore.exe' -print -quit)
+          [ -n "$EXE" ] || { echo "::error::OceanSpore.exe missing"; exit 1; }
+          file "$EXE" | tee /dev/stderr | grep -q 'PE32+ executable (GUI) x86-64' || { echo "::error::not a Windows x86-64 executable"; exit 1; }
+
+      # The packaged Linux binary must actually launch, render, take input, save and exit.
+      - name: Linux packaged launch smoke test
+        if: needs.plan.outputs.desktop_platform != 'windows'
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb > /dev/null
+          node scripts/desktop-smoke.mjs --packaged "dist-desktop/packages/Ocean Spore-linux-x64" --out dist-desktop/smoke
+
+      - name: Manifest parts and checksums
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.sha }}
+          DESKTOP_PLATFORM: ${{ needs.plan.outputs.desktop_platform }}
+        run: |
+          set -euo pipefail
+          if [ "$DESKTOP_PLATFORM" != "windows" ]; then
+            node scripts/release-manifest.mjs "dist-desktop/$(node scripts/version.js linux-name)" dist-desktop/manifest-linux.json dist-desktop/checksums-linux.sha256 --platform linux
+          fi
+          if [ "$DESKTOP_PLATFORM" != "linux" ]; then
+            node scripts/release-manifest.mjs "dist-desktop/$(node scripts/version.js exe-name)" dist-desktop/manifest-windows.json dist-desktop/checksums-windows.sha256 --platform windows
+          fi
+
+      - name: Upload desktop build files
+        uses: actions/upload-artifact@v4
+        with:
+          name: part-desktop
+          path: |
+            dist-desktop/*.tar.gz
+            dist-desktop/*.zip
+            dist-desktop/manifest-*.json
+            dist-desktop/smoke/smoke-report.json
+          retention-days: 1
+          if-no-files-found: error
+
+  # All selected platforms must have succeeded, built from the same SHA, or nothing
+  # is assembled (no partial coordinated release).
+  assemble:
+    name: Assemble one release set
+    needs: [plan, build-android, build-desktop]
+    if: ${{ always() && needs.plan.result == 'success' && (needs.plan.outputs.android != 'true' || needs.build-android.result == 'success') && (needs.plan.outputs.desktop != 'true' || needs.build-desktop.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: part-*
+          merge-multiple: true
+          path: parts
+
+      - name: Merge manifests (one SHA, exactly the requested platforms)
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+          PLATFORMS: ${{ needs.plan.outputs.platforms }}
+        run: |
+          set -euo pipefail
+          mkdir release-files
+          node scripts/merge-manifests.mjs --expect-sha "$SHA" --expect-platforms "$PLATFORMS" \
+            --out release-files/build-manifest.json --sums release-files/checksums.sha256 parts/manifest-*.json
+          find parts -maxdepth 1 -type f \( -name '*.apk' -o -name '*.zip' -o -name '*.tar.gz' \) -exec mv {} release-files/ \;
+
+      - name: Manifest and checksums match the packaged files
+        env:
+          APPROVED_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          python3 scripts/check-source-line.py --verify-manifest release-files/build-manifest.json --files-dir release-files
+          (cd release-files && sha256sum -c checksums.sha256)
+
+      - name: Release notes
+        run: node scripts/release-notes.mjs release-files/build-manifest.json > release-files/release-notes.md
+
+      # local_only: the owner downloads this artifact; nothing is published.
+      - name: Upload release set
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: release-files/*
+          retention-days: 3
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [plan, assemble]
+    if: needs.plan.outputs.destination == 'github_releases'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: release-set
+
+      # The release files and metadata must identify the same approved SHA.
+      - name: Release files match the approved SHA
+        env:
+          APPROVED_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          python3 scripts/check-source-line.py --verify-manifest release-set/build-manifest.json --files-dir release-set
+          (cd release-set && sha256sum -c checksums.sha256)
+
+      - name: Release title and tag
+        id: rel
+        run: |
+          echo "title=$(node scripts/version.js release-title)" >> "$GITHUB_OUTPUT"
+          echo "tag=$(node scripts/version.js release-tag)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          target_commitish: ${{ needs.plan.outputs.sha }}
+          # Playtest metadata only; the visible title carries no classification.
+          prerelease: true
+          name: ${{ steps.rel.outputs.title }}
+          body_path: release-set/release-notes.md
+          files: |
+            release-set/*.apk
+            release-set/*.zip
+            release-set/*.tar.gz
+            release-set/build-manifest.json
+            release-set/checksums.sha256
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
