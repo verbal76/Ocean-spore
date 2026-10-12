@@ -30,3 +30,6 @@ build/
 .DS_Store
 __pycache__/
 *.pyc
+
+# Build provenance (generated)
+build-provenance.json

@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createRequire } from 'node:module';
 const { currentVersion } = createRequire(import.meta.url)('./version.js');
@@ -11,7 +11,8 @@ const git = (cmd, fallback = '') => {
   catch { return fallback; }
 };
 
-const branch       = git('rev-parse --abbrev-ref HEAD', 'unknown');
+// CI checks out a detached commit, so prefer the ref the runner reports.
+const branch       = (process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || git('rev-parse --abbrev-ref HEAD', 'unknown'));
 const commit       = git('rev-parse HEAD', 'unknown');
 const commitShort  = git('rev-parse --short HEAD', 'unknown');
 const dirty        = git('status --porcelain') !== '';
@@ -24,6 +25,30 @@ const androidVersionCode = ver.versionCode;
 
 const buildId = `build #${buildNumber} ${commitShort} (${branch})${dirty ? ' [dirty]' : ''}`;
 const otaId   = `OTA ${commitShort} @ ${builtAt}`;
+
+const pkgVersion = (name) => {
+  try { return JSON.parse(readFileSync(`node_modules/${name}/package.json`, 'utf8')).version; }
+  catch { return 'unknown'; }
+};
+const runtimeVersion = JSON.parse(readFileSync('app.json', 'utf8')).expo.runtimeVersion;
+
+// Provenance of this build (also written as build-provenance.json for the
+// release manifest). One source revision, one record per target platform.
+const provenance = {
+  commit, branch, dirty, builtAt,
+  appVersion: ver.versionName, versionCode: ver.versionCode,
+  platform: 'android',
+  buildConfiguration: process.env.CI ? 'release (ci)' : 'local',
+  runtimeVersion,
+  toolchain: {
+    node: process.version,
+    expo: pkgVersion('expo'),
+    reactNative: pkgVersion('react-native'),
+    three: pkgVersion('three'),
+    expoUpdates: pkgVersion('expo-updates'),
+  },
+};
+writeFileSync('build-provenance.json', JSON.stringify(provenance, null, 2) + '\n');
 
 const data = {
   branch, commit, commitShort, dirty, builtAt,

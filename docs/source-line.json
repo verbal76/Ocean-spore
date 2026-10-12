@@ -1,0 +1,26 @@
+{
+  "_comment": "Machine-readable source-of-truth record. Read by scripts/check-source-line.py (local verify, CI, release builds). Edit deliberately; see docs/ARCHITECTURE.md.",
+  "project": "ocean-spore",
+  "authoritativeLine": {
+    "branch": "ccr-47defc1a-89uvnr",
+    "note": "The one integrated development history. PR #1 targets main; main only receives it by owner-approved merge. Until then main (README, logo, workflows) is a strict ancestor of this line."
+  },
+  "platforms": ["android"],
+  "baselines": [
+    { "name": "build-39 source (last device build of the original app)", "sha": "a3f17b61d38409dd2711f307a5a95e820fe6b986" },
+    { "name": "working-branch-ocean-spore tip (original dev line)", "sha": "cd44482a1d4d17c8d950fbf0eff29199920d3d23" },
+    { "name": "main before resurrection", "sha": "4e1c3774237c65e99dba99d16284c411f29fd6b8" },
+    { "name": "v40 rollback / qualified checkpoint", "sha": "e2712522338cc1600d52be9bc78d5e9a293eeae3" }
+  ],
+  "forbiddenBuildRefs": [
+    { "ref": "working-branch-ocean-spore", "why": "legacy branch that auto-publishes OTAs; never a build or release source" }
+  ],
+  "ledger": [
+    {
+      "ref": "origin/claude/fix-ui-add-menus-3q8N7",
+      "tip": "44202cdb838c4d30d5b20e8efb3f2c358046fc08",
+      "classification": "integrated-equivalent",
+      "disposition": "keep ref; do not merge. Its 3 unique commits were redone on the working branch (266c085 and later) and then rewritten in this line. See docs/BRANCH-LEDGER.md."
+    }
+  ]
+}

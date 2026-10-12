@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { spawnSync } from 'child_process';
 import { COLORS } from '../colors';
 import { BRAND_SPLASH_TIMING, BRAND_SPLASH_TOTAL_MS, FIRST_SCREEN, initialScreen, SCREEN_AFTER_BRAND } from '../app/launchFlow';
 
@@ -115,6 +116,48 @@ describe('Actions budget policy (nothing builds on a plain push)', () => {
   test('the policy is recorded in CLAUDE.md and `npm run verify` exists', () => {
     expect(read('CLAUDE.md')).toMatch(/budget policy/i);
     expect(JSON.parse(read('package.json')).scripts.verify).toMatch(/jest|npm test/);
+  });
+});
+
+describe('single source of truth (docs/source-line.json)', () => {
+  const line = JSON.parse(read('docs/source-line.json'));
+  const run = (env: Record<string, string>) => spawnSync('python3', ['scripts/check-source-line.py'], {
+    cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8',
+  });
+
+  test('record is well formed and includes the known baselines', () => {
+    expect(line.platforms).toContain('android');
+    expect(line.baselines.length).toBeGreaterThanOrEqual(4);
+    for (const b of line.baselines) expect(b.sha).toMatch(/^[0-9a-f]{40}$/);
+    const shas = line.baselines.map((b: any) => b.sha);
+    expect(shas).toContain('e2712522338cc1600d52be9bc78d5e9a293eeae3');   // v40 rollback
+    expect(shas).toContain('a3f17b61d38409dd2711f307a5a95e820fe6b986');   // build-39 source
+    for (const l of line.ledger) expect(l.tip).toMatch(/^[0-9a-f]{40}$/);
+  });
+  test('the legacy OTA branch is a forbidden build ref (guard fails)', () => {
+    const r = run({ BUILD_REF: 'working-branch-ocean-spore' });
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/forbidden/);
+  });
+  test('CI and every APK build verify the source line with full history', () => {
+    const ci = wf('ci.yml');
+    const co = ci.jobs.verify.steps.find((s: any) => s.uses?.startsWith('actions/checkout'));
+    expect(co.with['fetch-depth']).toBe(0);
+    expect(ci.jobs.verify.steps.some((s: any) => /check-source-line/.test(s.run ?? ''))).toBe(true);
+    const apk = wf('android-build.yml');
+    const bco = apk.jobs.build.steps.find((s: any) => s.uses?.startsWith('actions/checkout'));
+    expect(bco.with['fetch-depth']).toBe(0);
+    const names = apk.jobs.build.steps.map((s: any) => s.name);
+    expect(names).toContain('Verify source line');
+    expect(names.indexOf('Verify source line')).toBeLessThan(names.indexOf('Build release APK'));
+    expect(names).toContain('Release manifest (source SHA + artifact hashes)');
+    expect(JSON.stringify(apk.jobs.release)).toMatch(/release-manifest\.json/);
+  });
+  test('the policy is durable: CLAUDE.md, architecture doc and ledger exist', () => {
+    expect(read('CLAUDE.md')).toMatch(/ONE GAME/);
+    expect(read('docs/ARCHITECTURE.md')).toMatch(/one source of truth/i);
+    expect(read('docs/BRANCH-LEDGER.md')).toMatch(/Missing-work ledger/);
+    expect(JSON.parse(read('package.json')).scripts.verify).toMatch(/check-source-line/);
   });
 });
 

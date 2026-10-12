@@ -44,3 +44,31 @@ or can I prove it locally?*
   launch flow (canonical logo SHA is enforced by `scripts/check-brand.py`).
 - Environment quirk: the session integration token cannot dispatch workflows or
   push tags; the `publish-apk` label (clear, then re-add) is the working trigger.
+
+## One authoritative source (STANDING OWNER POLICY)
+
+We are developing ONE GAME that runs on every supported target (currently Android).
+One authoritative, continuously integrated codebase; platforms are build targets,
+not versions. Full detail: `docs/ARCHITECTURE.md`; machine-readable record:
+`docs/source-line.json`; branch accounting: `docs/BRANCH-LEDGER.md`.
+
+- Authoritative line: `ccr-47defc1a-89uvnr` (PR #1 into `main`). Branches are
+  temporary workspaces for isolating changes; they must start from the line, have a
+  purpose, and be integrated after validation. Never keep a per-platform or
+  per-agent copy of the app. Parallel agents must not maintain separate
+  implementations.
+- Shared behavior (`src/game`, `src/state`, `src/data`, audio manager) is
+  platform-neutral. Platform differences (touch vs keyboard, native packaging,
+  rendering backend) live in adapters and are documented. A fix on one platform
+  must be evaluated against every supported platform.
+- Every build must come from an explicit, approved SHA and record provenance
+  (`build-provenance.json`, `release-manifest.json`). A multiplatform release uses
+  the same SHA for all artifacts; never substitute a different SHA when one platform
+  fails.
+- Before discarding or deleting any branch, account for it in the ledger. A new
+  remote branch with outside commits fails `scripts/check-source-line.py`
+  (also part of `npm run verify`) until audited. Never delete branches or rewrite
+  shared history without owner approval.
+- OTA must keep its existing architecture (manual, gated by `runtimeVersion`) and
+  stays traceable to its source SHA. Do not redesign without a concrete problem.
+- Each repository is independent; do not touch other projects' repos.

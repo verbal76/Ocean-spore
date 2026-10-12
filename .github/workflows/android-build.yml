@@ -60,6 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -83,7 +84,16 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Generate build info
+      # Fail early if this is not the approved source line (descends from all
+      # baselines, not a forbidden ref, every branch accounted for).
+      - name: Verify source line
+        env:
+          BUILD_REF: ${{ github.head_ref || github.ref_name }}
+        run: python3 scripts/check-source-line.py
+
+      - name: Generate build info and provenance
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
         run: node scripts/write-build-info.mjs
 
       - name: Generate android/ project (expo prebuild)
@@ -159,11 +169,20 @@ jobs:
           if [ "$STATUS" -ne 0 ] && [ "$ENFORCE_16KB" = "true" ]; then exit 1; fi
           if [ "$STATUS" -ne 0 ]; then echo "::warning::APK is not 16 KB page-size compatible (not enforced yet)"; fi
 
+      # One source SHA -> every platform artifact. Fails if the tree built is
+      # not exactly the commit this run was asked to build.
+      - name: Release manifest (source SHA + artifact hashes)
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/release-manifest.mjs "dist-apk/${{ steps.apk.outputs.name }}" dist-apk/release-manifest.json
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.apk.outputs.name }}
-          path: dist-apk/${{ steps.apk.outputs.name }}
+          path: |
+            dist-apk/${{ steps.apk.outputs.name }}
+            dist-apk/release-manifest.json
           # Only handed to the release job (the Release is the durable copy).
           retention-days: 1
           if-no-files-found: error
@@ -187,7 +206,9 @@ jobs:
           target_commitish: ${{ github.event.pull_request.head.sha || github.sha }}
           prerelease: true
           name: Ocean Spore v${{ needs.build.outputs.version-name }} (test candidate)
-          files: ${{ needs.build.outputs.apk-name }}
+          files: |
+            ${{ needs.build.outputs.apk-name }}
+            release-manifest.json
           body: |
             ${{ needs.build.outputs.apk-name }}
 
