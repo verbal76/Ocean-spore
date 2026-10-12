@@ -67,3 +67,20 @@ ledger can be completed, or (b) tell me to research the licences online (needs
 your permission) or replace the models. Until then: fine for private sideload
 testing; **do not publish publicly or to Play**. Attribution text, if any pack
 requires it, goes in the About screen.
+
+## Controller glyph archive (received 2026-10-12)
+
+`Source.zip` was supplied by the owner (SHA-256
+`f6c75921b9d6ab2cb2b5249f547c7b7ba19e22da9f4f3b45693cf0912f25ded0`, 12.99 MB,
+1,633 entries: 1,428 PNG, 18 SVG, directories only otherwise; no path traversal).
+Families: `Keyboard_Mouse` (517 files), `P4Gamepad` (322), `P5Gamepad` (326),
+`SGamepad` (241), `XGamepad` (226), each in Default/Alt/Light/Dark/Retro-style
+variants. **The archive contains no licence, credits or readme file**, so the
+owner's statement that it is CC0 1.0 is **unverified from the archive itself**;
+confirm against the publisher's page before commercial use.
+
+**Not imported.** Ocean Spore is a touch-only Android game: it has no controller
+or keyboard input and no Steam/desktop target, so there is nothing to map glyphs
+to, and adding ~17 MB of unused art would only bloat the APK. The archive is kept
+outside the repository. If a controller or desktop target is ever authorized, the
+glyph mapping and licence verification become part of that work.
