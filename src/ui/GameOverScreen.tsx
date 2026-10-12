@@ -36,7 +36,7 @@ export function GameOverScreen({ run, newUnlocks, onRetry, onMenu }: Props) {
       )}
 
       <View style={styles.actions}>
-        <Pressable style={styles.btn} onPress={onRetry}>
+        <Pressable style={styles.btn} onPress={onRetry} testID="hat-primary">
           <Text style={styles.btnText}>RETRY</Text>
         </Pressable>
         <Pressable style={[styles.btn, styles.btnSecondary]} onPress={onMenu}>

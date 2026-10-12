@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { COLORS } from '../colors';
 import { randomCaptainName } from '../data/captain-names';
 import { Keyboard } from './Keyboard';
+import { useDesktopTextEntry } from '../platform/desktopLayer';
 
 interface Props {
   onConfirm: (name: string) => void;
@@ -24,6 +25,9 @@ export function CaptainScreen({ onConfirm, onCancel }: Props) {
     const cleaned = name.trim();
     if (cleaned.length > 0) onConfirm(cleaned);
   }
+
+  // Desktop: a physical keyboard types into the name field (no-op on Android).
+  useDesktopTextEntry(mode === 'type' ? { onKey, onBackspace, onSpace, onDone } : null);
 
   return (
     <View style={styles.root}>
@@ -56,6 +60,7 @@ export function CaptainScreen({ onConfirm, onCancel }: Props) {
             style={[styles.primaryBtn, !name && styles.btnDisabled]}
             onPress={onDone}
             disabled={!name}
+            testID="hat-primary"
           >
             <Text style={styles.primaryText}>SET SAIL AS {name || '...'}</Text>
           </Pressable>

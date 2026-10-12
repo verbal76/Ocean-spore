@@ -41,6 +41,14 @@ ${rows.join('\n')}
 
 ${summary}
 
+## Desktop shell (Windows / Linux builds only)
+
+- **Electron 44.7.0**: MIT. Every desktop package ships Electron's \`LICENSE\` and Chromium's
+  \`LICENSES.chromium.html\` (third-party notices for Chromium, FFmpeg and others) next to the
+  executable. Build tooling (\`@electron/packager\`) is not shipped.
+- **Controller glyphs** ("Input Prompts" by JulioCacko): CC0 1.0 per the publisher page; see
+  \`assets/glyphs/LICENSE.md\` and \`docs/ASSET-LICENSES.md\`.
+
 Review notes: no GPL-only, AGPL or proprietary package was found. Dual-licensed
 entries (\`node-forge\`: BSD-3-Clause OR GPL-2.0; \`type-fest\`: MIT OR CC0) are
 usable under the permissive option. \`lightningcss\` (MPL-2.0, file-level copyleft)

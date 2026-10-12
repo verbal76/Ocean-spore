@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { BackHandler, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +19,10 @@ import {
 import { SHIPS_BY_ID } from './data/ships';
 import { initialScreen, SCREEN_AFTER_BRAND } from './app/launchFlow';
 import { getAudio } from './audio';
+import { DESKTOP } from './platform/desktop';
+import { reportStatus, startDesktopLayer, useDesktopBack } from './platform/desktopLayer';
+import { PromptBar } from './desktop/PromptBar';
+import { MenuFrame } from './desktop/MenuFrame';
 import { loadSave, saveSave } from './state/persistence';
 import { Progress, rollUpRun } from './state/progress';
 import { defaultSave, SAVE_SCHEMA_VERSION, SaveData } from './state/saveSchema';
@@ -131,6 +135,13 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
     setScreen('dead');
   }
 
+  // Desktop: keyboard / gamepad layer, per-screen "back", and diagnostics.
+  useEffect(() => startDesktopLayer(), []);
+  useEffect(() => { reportStatus({ screen }); }, [screen]);
+  const backRef = useRef<(() => void) | null>(null);
+  const desktopBack = useCallback(() => backRef.current?.(), []);
+  useDesktopBack(desktopBack);
+
   // Android Back inside the harbor leaves it (instead of closing the app).
   const leaveRef = useRef<() => void>(() => {});
   useEffect(() => {
@@ -204,6 +215,12 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
 
   function backToSplash() { setScreen('splash'); }
 
+  backRef.current = screen === 'captain' ? onCaptainCancel
+    : screen === 'shipyard' ? onShipSelectBack
+    : screen === 'docked' ? onLeaveHarbor
+    : screen === 'dead' ? backToSplash
+    : null;
+
   const w = worldRef.current;
 
   // Edge-to-edge: menus keep the original look by sitting inside the system
@@ -220,22 +237,22 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
       {screen === 'brand' && <BrandSplash onDone={() => setScreen(SCREEN_AFTER_BRAND)} />}
 
       {screen === 'splash' && (
-        <SplashScreen
+        <MenuFrame><SplashScreen
           captainName={captainName}
           highScore={highScore}
           lifetimeKills={lifetimeKills}
           lifetimeParts={lifetimeParts}
           onContinue={onContinue}
           onNewCaptain={onNewCaptain}
-        />
+        /></MenuFrame>
       )}
 
       {screen === 'captain' && (
-        <CaptainScreen onConfirm={onCaptainConfirm} onCancel={onCaptainCancel} />
+        <MenuFrame><CaptainScreen onConfirm={onCaptainConfirm} onCancel={onCaptainCancel} /></MenuFrame>
       )}
 
       {screen === 'shipyard' && (
-        <ShipSelectScreen
+        <MenuFrame><ShipSelectScreen
           captainName={captainName}
           unlockedShips={unlockedShips}
           selectedShipId={selectedShip}
@@ -245,7 +262,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
           onSelectShip={onSelectShipFromTitle}
           onStart={startRun}
           onBack={onShipSelectBack}
-        />
+        /></MenuFrame>
       )}
 
       {/* The game stays mounted while docked (no GL/model rebuild, AUTO and
@@ -264,7 +281,7 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
 
       {screen === 'docked' && w && (
         <View style={[styles.harbor, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <ShipyardScreen
+        <MenuFrame><ShipyardScreen
           harborName={w.harbors[w.nearHarborIndex]?.name ?? 'Unknown Harbor'}
           run={w.run}
           repairCost={repairCost(w)}
@@ -273,17 +290,31 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
           onUpgrade={onUpgrade}
           onSwitchShip={onSwitchShip}
           onLeave={onLeaveHarbor}
-        />
+        /></MenuFrame>
         </View>
       )}
 
       {screen === 'dead' && lastRunRef.current && (
-        <GameOverScreen
+        <MenuFrame><GameOverScreen
           run={lastRunRef.current}
           newUnlocks={newUnlocks}
           onRetry={startRun}
           onMenu={backToSplash}
-        />
+        /></MenuFrame>
+      )}
+
+      {DESKTOP && screen !== 'brand' && screen !== 'playing' && (
+        <View style={styles.menuPrompts} pointerEvents="none">
+          <PromptBar
+            compact
+            items={[
+              { action: 'up', label: '' },
+              { action: 'down', label: 'NAVIGATE' },
+              { action: 'confirm', label: 'SELECT' },
+              ...(backRef.current ? [{ action: 'back' as const, label: 'BACK' }] : []),
+            ]}
+          />
+        </View>
       )}
     </View>
   );
@@ -292,4 +323,5 @@ function AppInner({ startScreen }: { startScreen: GameScreen }) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.bg },
   harbor: { ...StyleSheet.absoluteFillObject, backgroundColor: COLORS.bg },
+  menuPrompts: { position: 'absolute', left: 0, right: 0, bottom: 8, alignItems: 'center' },
 });

@@ -19,6 +19,12 @@ import { Joystick } from '../ui/Joystick';
 import { buildLayout, ControlState, METRICS, TapAction, TouchController, TouchPoint } from './controls';
 import { Run } from './types';
 import { getAudio } from '../audio';
+import { DESKTOP } from '../platform/desktop';
+import { exitApp } from '../platform/exit';
+import { cyclePromptPref, registerGameSink, reportStatus, toggleFullscreen } from '../platform/desktopLayer';
+import { useDeviceState } from '../platform/useDeviceState';
+import { PromptBar } from '../desktop/PromptBar';
+import { desktopViewScale } from './viewport';
 import { cycleWeapon, dockAt, drainEvents, InputState, newStepClock, stepFixed, World } from './world';
 import { flushSaves } from '../state/persistence';
 
@@ -83,6 +89,10 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
   const [glEpoch, setGlEpoch] = useState(0);
   const wasBackgroundedRef = useRef(false);
 
+  // Desktop: on-screen touch controls appear only once a touch screen is used;
+  // otherwise key/button prompts are shown instead.
+  const { touchSeen, pref: promptPref } = useDeviceState();
+  const showTouch = !DESKTOP || touchSeen;
   const [knobOffset, setKnobOffset] = useState({ x: 0, y: 0 });
   const [firePressed, setFirePressed] = useState(false);
 
@@ -120,6 +130,7 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
         const res = stepFixed(w, inputRef.current, frameDt, clock);
         const events = drainEvents(w);
         if (events.length > 0) getAudio().playEvents(events);
+        if (DESKTOP) reportStatus({ screen: 'playing', paused: false, simSeconds: w.run.activeSeconds ?? 0 });
         if (res.died) { onDiedRef.current(w.run); return; }
         // Re-render only while the world is actually moving; paused frames
         // have nothing new to draw.
@@ -192,6 +203,7 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
 
   function setPausedState(next: boolean) {
     pausedRef.current = next;
+    if (DESKTOP) reportStatus({ paused: next });
     setPaused(next);
     releaseAllInput();
   }
@@ -220,6 +232,26 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
       }
     }
   }
+
+  // Desktop: keyboard / gamepad input enters through the same fields and actions
+  // the touch controller uses (src/input/*). The sink always calls the latest closures.
+  const triggerActionRef = useRef(triggerAction);
+  triggerActionRef.current = triggerAction;
+  const applyControlsRef = useRef(applyControls);
+  applyControlsRef.current = applyControls;
+  const dockedRef = useRef(docked);
+  dockedRef.current = docked;
+  useEffect(() => {
+    if (!DESKTOP) return undefined;
+    registerGameSink({
+      mode: () => (dockedRef.current || !readyRef.current ? 'blocked' : pausedRef.current ? 'paused' : 'playing'),
+      setAxes: (a) => applyControlsRef.current({
+        dx: a.dx, dy: a.dy, knobX: a.dx * (METRICS.JOY_SIZE / 2), knobY: a.dy * (METRICS.JOY_SIZE / 2), fire: a.fire,
+      }),
+      tap: (k) => triggerActionRef.current(k),
+    });
+    return () => registerGameSink(null);
+  }, []);
 
   // Every touch event carries the full list of fingers currently down; the
   // controller reconciles against it, so a missed "end" can never latch input.
@@ -250,14 +282,15 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
   function onSaveQuit() {
     onQuitToMenu(worldRef.current);
     // Exit only after the save has actually reached disk.
-    flushSaves().finally(() => {
-      try { BackHandler.exitApp(); } catch { /* iOS / web no-op */ }
-    });
+    flushSaves().finally(() => exitApp());
   }
 
   const w = worldRef.current;
   const cam = w.camera;
-  const zoom = w.cameraZoom || 1;
+  // Desktop landscape framing keeps the visible world within the phone's extent
+  // (src/game/viewport.ts). Android: scale 1, identical to before.
+  const viewScale = DESKTOP ? desktopViewScale(sw, sh) : 1;
+  const zoom = (w.cameraZoom || 1) * viewScale;
   const shakeAmount = w.shake;
   const sx = (Math.random() - 0.5) * shakeAmount;
   const sy = (Math.random() - 0.5) * shakeAmount;
@@ -304,6 +337,7 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
           width={sw}
           height={sh}
           paused={paused}
+          viewScale={viewScale}
           hidden={docked}
           onReady={markReady}
         />
@@ -433,7 +467,7 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
         })}
       </Svg>
 
-      <HUD topInset={insets.top} run={w.run} player={w.player} weather={w.run.weather}
+      <HUD topInset={insets.top} maxWidth={DESKTOP ? 640 : undefined} run={w.run} player={w.player} weather={w.run.weather}
         bossActive={!!boss} bossHp={boss ? { current: boss.hull, max: boss.maxHull } : null} />
 
       {w.nearHarborIndex >= 0 && (
@@ -452,6 +486,8 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
       {/* All controls are passive visuals placed from the SAME layout the
           touch controller hit-tests (see game/controls.ts). Touches are handled
           once, by the root responder above. */}
+      {showTouch && (
+        <>
       <View
         pointerEvents="none"
         style={{ position: 'absolute', left: ctl.joystick.cx - ctl.joystick.radius, top: ctl.joystick.cy - ctl.joystick.radius }}
@@ -486,6 +522,24 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
       <View pointerEvents="none" style={[styles.pauseBtn, boxStyle(ctl.pause)]}>
         <Text style={styles.pauseText}>PAUSE</Text>
       </View>
+        </>
+      )}
+
+      {DESKTOP && !paused && !docked && (
+        <View style={[styles.promptDock, { bottom: 14 + insets.bottom }]} pointerEvents="none">
+          <PromptBar
+            compact
+            items={[
+              { action: 'move', label: 'MOVE' },
+              { action: 'fire', label: 'FIRE' },
+              { action: 'weapon', label: w.run.weaponMode === 0 ? 'SINGLE' : w.run.weaponMode === 1 ? 'SPREAD' : 'TWIN' },
+              { action: 'auto', label: autoFire ? 'AUTO ON' : 'AUTO OFF' },
+              ...(w.nearHarborIndex >= 0 ? [{ action: 'dock' as const, label: 'DOCK' }] : []),
+              { action: 'pause', label: 'PAUSE' },
+            ]}
+          />
+        </View>
+      )}
 
       {!renderReady && (
         <View style={styles.loading} pointerEvents="none">
@@ -496,8 +550,19 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
       {paused && w.dockedHarborIndex < 0 && (
         <View style={styles.pauseOverlay}>
           <Text style={styles.pauseOverlayText}>PAUSED</Text>
+          {DESKTOP && (
+            <PromptBar
+              compact
+              items={[
+                { action: 'up', label: '' },
+                { action: 'down', label: 'NAVIGATE' },
+                { action: 'confirm', label: 'SELECT' },
+                { action: 'pause', label: 'RESUME' },
+              ]}
+            />
+          )}
           <View style={styles.pauseMenu}>
-            <Pressable style={styles.pauseMenuPrimary} onPress={onResume}>
+            <Pressable style={styles.pauseMenuPrimary} onPress={onResume} testID="hat-primary">
               <Text style={styles.pauseMenuPrimaryText}>RESUME</Text>
             </Pressable>
             <Pressable
@@ -506,6 +571,22 @@ export function Game({ initialWorld, docked, soundEnabled, onToggleSound, onDock
             >
               <Text style={styles.pauseMenuBtnText}>SOUND: {soundEnabled ? 'ON' : 'OFF'}</Text>
             </Pressable>
+            {DESKTOP && (
+              <>
+                <Pressable
+                  style={styles.pauseMenuBtn}
+                  onPress={() => {
+                    getAudio().play('tap');
+                    cyclePromptPref();
+                  }}
+                >
+                  <Text style={styles.pauseMenuBtnText}>BUTTON PROMPTS: {promptPref.toUpperCase()}</Text>
+                </Pressable>
+                <Pressable style={styles.pauseMenuBtn} onPress={() => { getAudio().play('tap'); toggleFullscreen(); }}>
+                  <Text style={styles.pauseMenuBtnText}>FULLSCREEN / WINDOWED</Text>
+                </Pressable>
+              </>
+            )}
             <Pressable style={styles.pauseMenuBtn} onPress={onQuitMenu}>
               <Text style={styles.pauseMenuBtnText}>SAVE &amp; QUIT TO MAIN MENU</Text>
             </Pressable>
@@ -567,6 +648,7 @@ const styles = StyleSheet.create({
   },
   pauseOverlayText: { color: COLORS.text, fontSize: 32, fontWeight: '900', letterSpacing: 8 },
   pauseMenu: { width: '100%', maxWidth: 360, gap: 12 },
+  promptDock: { position: 'absolute', left: 0, right: 0, alignItems: 'center', paddingHorizontal: 16 },
   pauseMenuPrimary: {
     backgroundColor: COLORS.accent,
     paddingVertical: 16,

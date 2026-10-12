@@ -85,7 +85,7 @@ export function ShipSelectScreen({
             LIFETIME · {lifetimeKills} kills · {lifetimeParts} parts
           </Text>
         )}
-        <Pressable onPress={onStart} style={styles.startBtn}>
+        <Pressable onPress={onStart} style={styles.startBtn} testID="hat-primary">
           <Animated.Text
             style={[
               styles.startText,

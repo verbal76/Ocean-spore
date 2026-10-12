@@ -14,15 +14,17 @@ interface Props {
   bossHp: { current: number; max: number } | null;
   /** System status-bar/cutout height; the HUD starts below it. */
   topInset?: number;
+  /** Desktop: cap the HUD width (a 1920 px window would stretch the bars across the screen). */
+  maxWidth?: number;
 }
 
-export function HUD({ run, player, weather, bossActive, bossHp, topInset = 0 }: Props) {
+export function HUD({ run, player, weather, bossActive, bossHp, topInset = 0, maxWidth }: Props) {
   const shipName = SHIPS_BY_ID[player.classId]?.name ?? player.classId;
   const hullPct = Math.max(0, (player.hull / player.maxHull) * 100);
   const hullLow = hullPct < 30;
 
-  return (
-    <View pointerEvents="none" style={[styles.wrap, { paddingTop: HUD_TOP_PAD + topInset }]}>
+  const body = (
+    <>
       <View style={styles.topRow}>
         <View style={styles.panel}>
           <Text style={styles.label}>SHIP</Text>
@@ -83,11 +85,21 @@ export function HUD({ run, player, weather, bossActive, bossHp, topInset = 0 }: 
           </View>
         </View>
       )}
+    </>
+  );
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[styles.wrap, { paddingTop: HUD_TOP_PAD + topInset }, maxWidth ? styles.wrapCentered : null]}
+    >
+      {maxWidth ? <View style={{ width: '100%', maxWidth }}>{body}</View> : body}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapCentered: { alignItems: 'center' },
   wrap: {
     position: 'absolute',
     top: 0,

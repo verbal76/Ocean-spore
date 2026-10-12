@@ -16,6 +16,8 @@ interface Props {
   height: number;
   /** Simulation paused: keep the last frame alive at a low rate. */
   paused?: boolean;
+  /** Desktop landscape framing multiplier (1 on Android; see game/viewport.ts). */
+  viewScale?: number;
   /** Not visible at all (harbor screen on top): draw nothing. */
   hidden?: boolean;
   /** Called once when models are loaded and a frame has been drawn (or init failed). */
@@ -59,7 +61,7 @@ function hexToInt(hex: string): number {
 // follow that; this empty map is the hook for any future model that does not.
 const MODEL_YAW_OFFSET: Record<string, number> = {};
 
-export function Render3D({ worldRef, width, height, paused = false, hidden = false, onReady }: Props) {
+export function Render3D({ worldRef, width, height, paused = false, hidden = false, viewScale = 1, onReady }: Props) {
   const mountedRef = useRef(true);
   const startedRef = useRef(false);
   const rafRef = useRef(0);
@@ -70,6 +72,8 @@ export function Render3D({ worldRef, width, height, paused = false, hidden = fal
   sizeRef.current = { width, height };
   const pausedRef = useRef(paused);
   pausedRef.current = paused;
+  const viewScaleRef = useRef(viewScale);
+  viewScaleRef.current = viewScale;
   const hiddenRef = useRef(hidden);
   hiddenRef.current = hidden;
   const onReadyRef = useRef(onReady);
@@ -193,7 +197,7 @@ export function Render3D({ worldRef, width, height, paused = false, hidden = fal
           camera.position.z = w.camera.y;
           camera.lookAt(w.camera.x, 0, w.camera.y);
 
-          const z = w.cameraZoom || 1;
+          const z = (w.cameraZoom || 1) * viewScaleRef.current;
           const { width: sw, height: sh } = sizeRef.current;
           if (z !== lastZoom || sw !== lastW || sh !== lastH) {
             lastZoom = z; lastW = sw; lastH = sh;

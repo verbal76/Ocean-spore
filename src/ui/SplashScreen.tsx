@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { COLORS } from '../colors';
 import { AboutOverlay } from './AboutOverlay';
+import { DESKTOP } from '../platform/desktop';
+import { exitApp } from '../platform/exit';
 
 const EMBLEM = require('../../assets/icons/adaptive-foreground.png');
 
@@ -90,6 +92,7 @@ export function SplashScreen({
 
         <Pressable
           onPress={onContinue}
+          testID="hat-primary"
           disabled={!hasCaptain}
           style={[styles.primaryBtn, !hasCaptain && styles.btnDisabled]}
         >
@@ -111,7 +114,13 @@ export function SplashScreen({
           <Text style={styles.secondaryText}>NEW CAPTAIN</Text>
         </Pressable>
 
-        <Text style={styles.hint}>Joystick (L) moves · Auto-fire on · Tap FIRE for manual</Text>
+        {DESKTOP ? (
+          <Pressable onPress={exitApp} style={styles.secondaryBtn}>
+            <Text style={styles.secondaryText}>QUIT</Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.hint}>Joystick (L) moves · Auto-fire on · Tap FIRE for manual</Text>
+        )}
       </View>
 
       {showAbout && <AboutOverlay onClose={() => setShowAbout(false)} />}

@@ -9,8 +9,7 @@
 //      preferred path in #28 - it bypasses three.js's texture upload
 //      pipeline entirely, which gave us black ships in #27.
 import './_polyfills';
-import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system/legacy';
+import { readAssetBytes } from './assetBytes';
 // @ts-ignore - upng-js has no type definitions
 import UPNG from 'upng-js';
 import * as THREE from 'three';
@@ -41,35 +40,13 @@ function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
 
-function base64ToArrayBuffer(b64: string): ArrayBuffer {
-  if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
-    try {
-      const buf = Buffer.from(b64, 'base64');
-      return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-    } catch {
-      /* fall through */
-    }
-  }
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes.buffer;
-}
-
 async function decodeColormap(): Promise<DecodedColormap | null> {
   if (decoded) return decoded;
   if (decodePromise) return decodePromise;
 
   decodePromise = (async () => {
     try {
-      const asset = Asset.fromModule(COLORMAP_MOD);
-      await asset.downloadAsync();
-      const uri = asset.localUri ?? asset.uri;
-      if (!uri) return null;
-      const b64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      const buf = base64ToArrayBuffer(b64);
+      const buf = await readAssetBytes(COLORMAP_MOD);
 
       const png = UPNG.decode(buf);
       const rgbaBuf = UPNG.toRGBA8(png)[0];

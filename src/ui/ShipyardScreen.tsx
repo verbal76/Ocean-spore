@@ -136,7 +136,7 @@ export function ShipyardScreen({
           })}
       </ScrollView>
 
-      <Pressable style={styles.leaveBtn} onPress={onLeave}>
+      <Pressable style={styles.leaveBtn} onPress={onLeave} testID="hat-primary">
         <Text style={styles.leaveBtnText}>RETURN TO OCEAN</Text>
       </Pressable>
     </View>

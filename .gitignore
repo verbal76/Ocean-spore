@@ -33,3 +33,4 @@ __pycache__/
 
 # Build provenance (generated)
 build-provenance.json
+dist-desktop*/
