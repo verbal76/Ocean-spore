@@ -84,12 +84,15 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      # Fail early if this is not the approved source line (descends from all
-      # baselines, not a forbidden ref, every branch accounted for).
-      - name: Verify source line
+      # The approved source is the exact commit this run was asked to build (the
+      # PR head at label time, or the dispatched commit). Fail early unless the
+      # checkout IS that commit and it belongs to the authorized development line.
+      # (Unrelated branch activity is reported by audit-branches.py, never gating.)
+      - name: Verify approved source SHA
         env:
+          APPROVED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BUILD_REF: ${{ github.head_ref || github.ref_name }}
-        run: python3 scripts/check-source-line.py
+        run: python3 scripts/check-source-line.py --release
 
       - name: Generate build info and provenance
         env:
@@ -176,6 +179,11 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: node scripts/release-manifest.mjs "dist-apk/${{ steps.apk.outputs.name }}" dist-apk/release-manifest.json
 
+      - name: Manifest names the approved SHA
+        env:
+          APPROVED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/check-source-line.py --verify-manifest dist-apk/release-manifest.json
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -195,9 +203,19 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
       - uses: actions/download-artifact@v4
         with:
           name: ${{ needs.build.outputs.apk-name }}
+
+      # The release metadata must identify the same approved SHA as the build.
+      - name: Release metadata matches the approved SHA
+        env:
+          APPROVED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/check-source-line.py --verify-manifest release-manifest.json
 
       - name: Publish
         uses: softprops/action-gh-release@v2

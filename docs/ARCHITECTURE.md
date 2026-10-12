@@ -43,21 +43,36 @@ the SHA-256 of every platform artifact built from it. A coordinated multiplatfor
 release uses the same `sourceCommit` for every artifact; a failed platform is
 never papered over with a different SHA.
 
-## Enforcement (`scripts/check-source-line.py`)
+## Enforcement: two separate responsibilities
 
-Runs in `npm run verify`, in `ci.yml`, and before every APK build:
+**1. Release authorization** (`scripts/check-source-line.py`, gating). A release is
+built from an **explicit, approved, full 40-hex commit SHA** (the PR head at label
+time, or the dispatched commit). In `--release` mode it fails unless:
 
-1. fails on a shallow checkout (ancestry cannot be proven; never silently skipped)
-2. the built commit must descend from every baseline in `source-line.json`
-   (build-39 source, original working-branch tip, pre-resurrection main, v40)
-3. the build ref must not be a forbidden ref (`working-branch-ocean-spore`)
-4. every remote branch with commits not in the built commit must be in the ledger
-   at its recorded tip; a moved or new branch fails until re-audited
-5. `release-manifest.mjs` fails if the tree built is not the requested SHA or is dirty
+- the checkout `HEAD` is exactly that SHA (a branch name or short SHA is rejected;
+  a branch tip is never substituted),
+- that SHA is the tip of, or an ancestor of, a branch listed in
+  `authoritativeLine.branches` (so recovery/maintenance builds from an earlier
+  commit on the line work; commits outside the line are rejected),
+- the clone is not shallow (lineage must be provable) and the build ref is not
+  forbidden (`working-branch-ocean-spore`).
+
+It never looks at unrelated branches. The manifest step (`release-manifest.mjs`)
+additionally proves the **APK's own JS bundle embeds the approved SHA**, and
+`--verify-manifest` re-checks that `release-manifest.json` names the same SHA in
+the build job and again in the release job before publishing. To change which
+branches are authorized (e.g. add `main` after PR #1 merges), edit
+`authoritativeLine.branches` in a reviewed commit; no history is rewritten.
+Historical SHAs live in `historicalBaselines` as permanent audit evidence only.
+
+**2. Branch audit** (`scripts/audit-branches.py`, reporting). Lists every origin
+branch as contained / ledgered / MOVED / UNACCOUNTED and checks the historical
+baselines are still reachable. It exits 0 (warnings only; `::warning::` in
+Actions) so an unrelated experimental branch can never block a release;
+`npm run audit:branches` runs it with `--strict` for periodic development reviews.
 
 Release gates (manifest/permissions, 16 KB, signing identity, runtimeVersion for
-OTA) are unchanged. Cost: the checks are local-first and add seconds to existing
-jobs; no new workflow runs.
+OTA) are unchanged, and nothing here adds workflow runs.
 
 ## OTA vs native
 

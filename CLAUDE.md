@@ -61,14 +61,24 @@ not versions. Full detail: `docs/ARCHITECTURE.md`; machine-readable record:
   platform-neutral. Platform differences (touch vs keyboard, native packaging,
   rendering backend) live in adapters and are documented. A fix on one platform
   must be evaluated against every supported platform.
-- Every build must come from an explicit, approved SHA and record provenance
+- Every release build comes from an explicit, approved **full SHA**. The guard
+  (`scripts/check-source-line.py --release`) requires `HEAD == approved SHA`, that
+  SHA on the authorized line (`docs/source-line.json` `authoritativeLine.branches`),
+  and a manifest/APK that name the same SHA. Builds record provenance
   (`build-provenance.json`, `release-manifest.json`). A multiplatform release uses
-  the same SHA for all artifacts; never substitute a different SHA when one platform
-  fails.
-- Before discarding or deleting any branch, account for it in the ledger. A new
-  remote branch with outside commits fails `scripts/check-source-line.py`
-  (also part of `npm run verify`) until audited. Never delete branches or rewrite
+  the same SHA for all artifacts; never substitute a different SHA.
+- Branch accounting is a separate, **non-blocking** audit
+  (`scripts/audit-branches.py`; `npm run audit:branches` for strict periodic
+  review). Account for a branch in `docs/BRANCH-LEDGER.md` before discarding it;
+  an unrelated branch never blocks a release. Never delete branches or rewrite
   shared history without owner approval.
 - OTA must keep its existing architecture (manual, gated by `runtimeVersion`) and
   stays traceable to its source SHA. Do not redesign without a concrete problem.
 - Each repository is independent; do not touch other projects' repos.
+
+## Known release blockers (owner decisions; see the docs)
+
+- Signing: releases use the public template debug key. Fine for owner sideload,
+  not for distribution or Play. `docs/SIGNING.md`.
+- Asset licensing: the bundled GLBs/colormap have no licence record.
+  `docs/ASSET-LICENSES.md`. Do not publish publicly until resolved.

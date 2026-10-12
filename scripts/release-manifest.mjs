@@ -1,7 +1,11 @@
 // Writes the release manifest: one source SHA and every platform artifact built
-// from it. Usage: node scripts/release-manifest.mjs <apk> <out.json>
+// from it. Usage: EXPECTED_SHA=<approved full sha> node scripts/release-manifest.mjs <apk> <out.json>
+// With EXPECTED_SHA set it also proves the APK's own JS bundle embeds that SHA
+// (BUILD_INFO), i.e. the artifact really was built from the approved source.
 import { readFileSync, writeFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import { execFileSync } from 'node:child_process';
 import { basename } from 'node:path';
 
 const [apk, out] = process.argv.slice(2);
@@ -15,9 +19,18 @@ if (expected && expected !== prov.commit) {
   process.exit(1);
 }
 
+if (expected) {
+  const bundle = execFileSync('unzip', ['-p', apk, 'assets/index.android.bundle'], { maxBuffer: 256 * 1024 * 1024 });
+  if (!bundle.includes(Buffer.from(expected, 'ascii'))) {
+    console.error(`the APK bundle does not embed approved SHA ${expected.slice(0, 7)}`);
+    process.exit(1);
+  }
+}
+
 const manifest = {
   schema: 1,
   sourceCommit: prov.commit,
+  approvedSha: expected || null,
   sourceBranch: prov.branch,
   appVersion: prov.appVersion,
   versionCode: prov.versionCode,

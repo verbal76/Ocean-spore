@@ -35,11 +35,13 @@ Assets, configuration and build improvements: the 16 bundled GLBs + colormap are
 byte-identical to build-39's APK (CI asset gate). Nothing was found only on a side
 branch. No performance or platform-compatibility fix exists outside the line.
 Nothing is "Unknown, requiring owner review" except the unrelated, already recorded
-items in `docs/RELEASING.md` and `assets/README.md` (production signing, GLB licence).
+items in `docs/RELEASING.md` and `assets/README.md` (production signing: docs/SIGNING.md; GLB licence: docs/ASSET-LICENSES.md).
 
 ## Maintaining the ledger
 
-Any new remote branch with commits outside the line fails
-`scripts/check-source-line.py` until it is audited and added to
-`docs/source-line.json` (and a row here). When a ledgered branch moves, re-audit.
-The claude-ui branch is kept (not deleted) at its recorded tip.
+The ledger and `historicalBaselines` are **audit evidence**, read only by
+`scripts/audit-branches.py`. A new remote branch with commits outside the line, or
+a ledgered branch that moved, produces a warning (never a failed release) until it
+is audited and added to `docs/source-line.json` and a row here. Run
+`npm run audit:branches` (strict) during periodic reviews. The claude-ui branch is
+kept (not deleted) at its recorded tip.

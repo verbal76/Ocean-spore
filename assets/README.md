@@ -1,5 +1,7 @@
 # Asset provenance
 
+Per-file licensing ledger and what is proven vs unproven: [`docs/ASSET-LICENSES.md`](../docs/ASSET-LICENSES.md).
+
 What ships in the APK, where it came from, and its licence status. Keep this
 current when assets change (CI pins the bundled GLBs and colormap by SHA-256 in
 `bundled-assets.sha256`).

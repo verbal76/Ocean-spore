@@ -1,73 +1,103 @@
 #!/usr/bin/env python3
-"""Single-source-of-truth guard (docs/ARCHITECTURE.md, docs/source-line.json).
+"""Release-critical source authorization (docs/ARCHITECTURE.md, docs/source-line.json).
 
-Fails (never silently skips) when:
-  * the checkout is shallow, so ancestry cannot be proven;
-  * the commit being built is not a descendant of every recorded baseline;
-  * the build ref is a forbidden legacy ref (BUILD_REF / GITHUB_HEAD_REF / GITHUB_REF_NAME);
-  * a remote branch holds commits not reachable from the commit being built and
-    is not accounted for in the ledger (so unmerged work cannot go unnoticed).
+Answers one question: is THIS checkout exactly the approved commit, and does that
+commit belong to the authorized development history? It never looks at unrelated
+branches (that is scripts/audit-branches.py, which only reports).
 
-Usage: check-source-line.py [--commit SHA]    (default: HEAD)
+Modes
+  (default)             development check: build ref not forbidden; HEAD sits on the line
+                        (contains, or is contained in, an authorized origin branch).
+  --release             requires --approved-sha (or env APPROVED_SHA): a FULL 40-hex SHA.
+                        Fails unless HEAD == approved SHA, approved SHA is the tip of or an
+                        ancestor of an authorized line branch, the clone is not shallow, and
+                        the build ref is not forbidden. A branch name is never accepted and
+                        a branch tip is never substituted for the approved SHA.
+  --verify-manifest F   (needs --approved-sha) release-manifest.json names the same SHA.
+                        Needs no git history.
+
+Options: --repo DIR, --config FILE (tests).
 """
-import json, os, subprocess, sys
+import json, os, re, sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CFG = os.path.join(ROOT, "docs", "source-line.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sourceline_common import ROOT, Repo, arg, load_config  # noqa: E402
+
+FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
-def git(*args, check=True):
-    r = subprocess.run(["git", "-C", ROOT, *args], capture_output=True, text=True)
-    if check and r.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)}: {r.stderr.strip()}")
-    return r
+def build_ref():
+    return (os.environ.get("BUILD_REF") or os.environ.get("GITHUB_HEAD_REF")
+            or os.environ.get("GITHUB_REF_NAME") or "").replace("refs/heads/", "")
+
+
+def verify_manifest(path, approved):
+    fails = []
+    if not approved or not FULL_SHA.match(approved):
+        return ["--verify-manifest needs a full 40-hex --approved-sha"]
+    try:
+        m = json.load(open(path))
+    except Exception as e:  # unreadable / malformed manifest is a failure, not a skip
+        return [f"cannot read manifest {path}: {e}"]
+    if m.get("sourceCommit") != approved:
+        fails.append(f"manifest sourceCommit {str(m.get('sourceCommit'))[:7]} != approved {approved[:7]}")
+    if m.get("approvedSha") not in (None, approved):
+        fails.append(f"manifest approvedSha {str(m.get('approvedSha'))[:7]} != approved {approved[:7]}")
+    arts = m.get("artifacts") or []
+    if not arts or not all(a.get("sha256") and a.get("platform") for a in arts):
+        fails.append("manifest lists no complete artifact entries")
+    return fails
 
 
 def main():
-    commit = "HEAD"
-    if "--commit" in sys.argv:
-        commit = sys.argv[sys.argv.index("--commit") + 1]
-    cfg = json.load(open(CFG))
-    fails = []
+    cfg = load_config(arg("--config"))
+    approved = arg("--approved-sha", os.environ.get("APPROVED_SHA"))
 
-    build_ref = (os.environ.get("BUILD_REF") or os.environ.get("GITHUB_HEAD_REF")
-                 or os.environ.get("GITHUB_REF_NAME") or "").replace("refs/heads/", "")
-    for f in cfg["forbiddenBuildRefs"]:
-        if build_ref == f["ref"]:
-            fails.append(f"build ref '{build_ref}' is forbidden: {f['why']}")
-
-    if git("rev-parse", "--is-shallow-repository").stdout.strip() == "true":
-        fails.append("shallow checkout: ancestry cannot be verified (use fetch-depth: 0)")
+    if "--verify-manifest" in sys.argv:
+        fails = verify_manifest(arg("--verify-manifest"), approved)
+        label = "manifest matches approved source"
     else:
-        sha = git("rev-parse", commit).stdout.strip()
-        for b in cfg["baselines"]:
-            if git("cat-file", "-e", b["sha"] + "^{commit}", check=False).returncode != 0:
-                fails.append(f"baseline missing from history: {b['name']} {b['sha'][:7]}")
-            elif git("merge-base", "--is-ancestor", b["sha"], sha, check=False).returncode != 0:
-                fails.append(f"{sha[:7]} is not a descendant of baseline: {b['name']} {b['sha'][:7]}")
+        repo = Repo(arg("--repo", ROOT))
+        release = "--release" in sys.argv
+        fails = []
 
-        accounted = {l["ref"]: l["tip"] for l in cfg["ledger"]}
-        refs = git("for-each-ref", "--format=%(refname:short) %(objectname)", "refs/remotes/origin").stdout.split("\n")
-        for line in filter(None, refs):
-            name, tip = line.split()
-            if name.endswith("/HEAD"):
-                continue
-            n = int(git("rev-list", "--count", f"{sha}..{tip}").stdout.strip())
-            if n == 0:
-                continue
-            if accounted.get(name) == tip:
-                continue
-            if name in accounted:
-                fails.append(f"{name} moved to {tip[:7]} since it was ledgered ({accounted[name][:7]}); re-audit and update docs/source-line.json")
+        ref = build_ref()
+        for f in cfg["forbiddenBuildRefs"]:
+            if ref == f["ref"]:
+                fails.append(f"build ref '{ref}' is forbidden: {f['why']}")
+
+        head = repo.out("rev-parse", "HEAD")
+        line = [(b, f"origin/{b}") for b in cfg["authoritativeLine"]["branches"]]
+        tips = repo.remote_tips()
+        present = [(b, r) for b, r in line if r in tips]
+        if not present:
+            fails.append("none of the authorized line branches exist as origin/<branch>: " +
+                         ", ".join(b for b, _ in line))
+
+        if release:
+            if not approved or not FULL_SHA.match(approved):
+                fails.append("release builds need an explicit full 40-hex approved SHA (a branch name or short SHA is not accepted)")
             else:
-                fails.append(f"{name} has {n} commit(s) not in {sha[:7]} and is not in the ledger")
+                if head != approved:
+                    fails.append(f"checkout HEAD {head[:7]} != approved SHA {approved[:7]}")
+                if repo.is_shallow():
+                    fails.append("shallow checkout: lineage cannot be verified (use fetch-depth: 0)")
+                elif not repo.has_commit(approved):
+                    fails.append(f"approved SHA {approved[:7]} is not in this repository")
+                elif present and not any(repo.is_ancestor(approved, tips[r]) for _, r in present):
+                    fails.append(f"approved SHA {approved[:7]} is not on the authorized development line ({', '.join(b for b, _ in line)})")
+            label = f"release source OK: {head[:7]} == approved SHA, on the authorized line"
+        else:
+            if present and not any(repo.is_ancestor(tips[r], head) or repo.is_ancestor(head, tips[r]) for _, r in present):
+                fails.append(f"HEAD {head[:7]} is neither on nor built on the authorized line")
+            label = f"source line OK: {head[:7]} is on the authorized line"
 
     if fails:
-        print("SOURCE LINE CHECK FAILED")
+        print("SOURCE CHECK FAILED")
         for f in fails:
             print(" -", f)
         return 1
-    print(f"source line OK: {git('rev-parse', '--short', commit).stdout.strip()} descends from {len(cfg['baselines'])} baselines; all branches accounted for")
+    print(label)
     return 0
 
 

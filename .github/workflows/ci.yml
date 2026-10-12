@@ -37,8 +37,13 @@ jobs:
       - name: Install Pillow (brand check)
         run: python3 -m pip install --quiet pillow
 
-      - name: Single source line (baselines, forbidden refs, branch ledger)
+      - name: Source line (on the authorized development line)
         run: python3 scripts/check-source-line.py
+
+      # Reporting only: surfaces unmerged/unaccounted branch work as warnings and
+      # never fails the run (release authorization does not depend on it).
+      - name: Branch audit (report only)
+        run: python3 scripts/audit-branches.py
 
       - name: Hot Attic Games logo integrity
         run: python3 scripts/check-brand.py

@@ -125,33 +125,42 @@ describe('single source of truth (docs/source-line.json)', () => {
     cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8',
   });
 
-  test('record is well formed and includes the known baselines', () => {
+  test('record: one authorized line; historical baselines kept as audit evidence only', () => {
     expect(line.platforms).toContain('android');
-    expect(line.baselines.length).toBeGreaterThanOrEqual(4);
-    for (const b of line.baselines) expect(b.sha).toMatch(/^[0-9a-f]{40}$/);
-    const shas = line.baselines.map((b: any) => b.sha);
+    expect(line.authoritativeLine.branches).toContain('ccr-47defc1a-89uvnr');
+    const shas = line.historicalBaselines.map((b: any) => b.sha);
+    for (const b of line.historicalBaselines) expect(b.sha).toMatch(/^[0-9a-f]{40}$/);
     expect(shas).toContain('e2712522338cc1600d52be9bc78d5e9a293eeae3');   // v40 rollback
     expect(shas).toContain('a3f17b61d38409dd2711f307a5a95e820fe6b986');   // build-39 source
     for (const l of line.ledger) expect(l.tip).toMatch(/^[0-9a-f]{40}$/);
+    // The release guard must not consult the historical record.
+    expect(read('scripts/check-source-line.py')).not.toMatch(/historicalBaselines|ledger/);
   });
   test('the legacy OTA branch is a forbidden build ref (guard fails)', () => {
     const r = run({ BUILD_REF: 'working-branch-ocean-spore' });
     expect(r.status).toBe(1);
     expect(r.stdout).toMatch(/forbidden/);
   });
-  test('CI and every APK build verify the source line with full history', () => {
+  test('CI verifies the line; every APK build authorizes an exact SHA before building', () => {
     const ci = wf('ci.yml');
     const co = ci.jobs.verify.steps.find((s: any) => s.uses?.startsWith('actions/checkout'));
     expect(co.with['fetch-depth']).toBe(0);
     expect(ci.jobs.verify.steps.some((s: any) => /check-source-line/.test(s.run ?? ''))).toBe(true);
+    const audit = ci.jobs.verify.steps.find((s: any) => /audit-branches/.test(s.run ?? ''));
+    expect(audit.run).not.toMatch(/--strict/);                             // reporting only
     const apk = wf('android-build.yml');
     const bco = apk.jobs.build.steps.find((s: any) => s.uses?.startsWith('actions/checkout'));
     expect(bco.with['fetch-depth']).toBe(0);
     const names = apk.jobs.build.steps.map((s: any) => s.name);
-    expect(names).toContain('Verify source line');
-    expect(names.indexOf('Verify source line')).toBeLessThan(names.indexOf('Build release APK'));
+    const gate = apk.jobs.build.steps.find((s: any) => s.name === 'Verify approved source SHA');
+    expect(gate.run).toMatch(/check-source-line\.py --release/);
+    expect(gate.env.APPROVED_SHA).toMatch(/pull_request\.head\.sha/);
+    expect(names.indexOf('Verify approved source SHA')).toBeLessThan(names.indexOf('Build release APK'));
     expect(names).toContain('Release manifest (source SHA + artifact hashes)');
-    expect(JSON.stringify(apk.jobs.release)).toMatch(/release-manifest\.json/);
+    expect(names).toContain('Manifest names the approved SHA');
+    const rel = JSON.stringify(apk.jobs.release);
+    expect(rel).toMatch(/release-manifest\.json/);
+    expect(rel).toMatch(/--verify-manifest/);                              // release job re-checks
   });
   test('the policy is durable: CLAUDE.md, architecture doc and ledger exist', () => {
     expect(read('CLAUDE.md')).toMatch(/ONE GAME/);
