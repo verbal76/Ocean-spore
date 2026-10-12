@@ -26,13 +26,17 @@ To build and publish a GitHub Release: Actions -> APK Build -> Run workflow ->
 it to rebuild), which builds the PR head commit and publishes (other labels do nothing). The release is marked **pre-release**; the tag is
 `v<versionName>` and points at the built commit.
 
+A build number identifies exactly one release: the build refuses a `v<build>` that
+already has a tag or GitHub Release (bump `oceanSpore.build` for every new
+candidate; current build 41 is already released as `v41`).
+
 ## OTA updates (`eas-update.yml`)
 
 Manual only. Run it from the Actions tab and retype the `runtimeVersion` from
-`app.json` (currently `2.0.0`); a mismatch aborts, so an update can't be sent
+`app.json` (currently `2.1.0`); a mismatch aborts, so an update can't be sent
 across a native boundary. **Bump `runtimeVersion` whenever native code or
 native config changes** (SDK upgrade, new native module, permission change).
-Old `1.0.0` installs never receive updates built for runtime `2.0.0`.
+Old `1.0.0` installs never receive updates built for runtime `2.0.0`/`2.1.0`.
 
 ## Signing (owner decision required)
 

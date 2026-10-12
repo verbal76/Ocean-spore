@@ -67,6 +67,18 @@ jobs:
           node-version: 22
           cache: npm
 
+      # Releases are immutable: refuse a build number that already has a tag /
+      # GitHub Release (checked before any expensive step).
+      - name: Build number not already released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(node scripts/version.js version-name)
+          python3 scripts/check-version-unused.py "$V"
+          if gh api "repos/${{ github.repository }}/releases/tags/v$V" > /dev/null 2>&1; then
+            echo "::error::A GitHub Release v$V already exists. Bump oceanSpore.build."; exit 1
+          fi
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

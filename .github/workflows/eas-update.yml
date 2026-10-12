@@ -44,6 +44,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # An OTA reaches installed games, so it may only be published from the exact
+      # dispatched commit AND only if that commit is on the authorized line.
+      - name: Verify approved source SHA
+        env:
+          APPROVED_SHA: ${{ github.sha }}
+          BUILD_REF: ${{ github.ref_name }}
+        run: python3 scripts/check-source-line.py --release
 
       - uses: actions/setup-node@v4
         with:

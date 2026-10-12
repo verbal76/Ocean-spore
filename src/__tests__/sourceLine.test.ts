@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from 'child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, rmSync , readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+
 
 // Behavioural tests for the release source guard and the branch audit, against
 // throwaway git repositories (no network, no real history required).
@@ -11,6 +12,9 @@ const GIT_ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
 };
+ 
+const yaml = require('js-yaml');
+const wfSteps = (file: string, job: string) => yaml.load(readFileSync(join(ROOT, '.github/workflows', file), 'utf8')).jobs[job].steps;
 
 let dir = '';
 const git = (...a: string[]) => execFileSync('git', ['-C', dir, ...a], { env: GIT_ENV, encoding: 'utf8' }).trim();
@@ -120,6 +124,29 @@ describe('manifest / release metadata provenance', () => {
     expect(guard(['--verify-manifest', manifest({ approvedSha: base }), '--approved-sha', tip]).status).toBe(1);
     expect(guard(['--verify-manifest', manifest({ artifacts: [] }), '--approved-sha', tip]).status).toBe(1);
     expect(guard(['--verify-manifest', join(dir, 'nope.json'), '--approved-sha', tip]).status).toBe(1);
+  });
+});
+
+describe('release immutability (build numbers are not reused)', () => {
+  const unused = (v: string) => spawnSync('python3', [join(ROOT, 'scripts/check-version-unused.py'), v, '--repo', dir], { encoding: 'utf8' });
+  test('an unreleased build number passes', () => {
+    expect(unused('42').status).toBe(0);
+  });
+  test('a build number whose tag exists is refused', () => {
+    git('tag', 'v41', tip);
+    const r = unused('41');
+    expect(r.status).toBe(1);
+    expect(r.stdout).toMatch(/ALREADY RELEASED/);
+    expect(unused('42').status).toBe(0);
+  });
+  test('the APK build runs the check before any expensive step, and OTA publishing is gated to the line', () => {
+    const apk = JSON.parse(JSON.stringify(wfSteps('android-build.yml', 'build')));
+    const names = apk.map((s: any) => s.name);
+    expect(names.indexOf('Build number not already released')).toBeGreaterThan(-1);
+    expect(names.indexOf('Build number not already released')).toBeLessThan(names.indexOf('Install dependencies'));
+    const eas = wfSteps('eas-update.yml', 'update').map((s: any) => s.name);
+    expect(eas.indexOf('Verify approved source SHA')).toBeGreaterThan(-1);
+    expect(eas.indexOf('Verify approved source SHA')).toBeLessThan(eas.indexOf('Publish update'));
   });
 });
 
