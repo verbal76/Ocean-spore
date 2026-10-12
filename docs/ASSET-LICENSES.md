@@ -75,9 +75,17 @@ requires it, goes in the About screen.
 1,633 entries: 1,428 PNG, 18 SVG, directories only otherwise; no path traversal).
 Families: `Keyboard_Mouse` (517 files), `P4Gamepad` (322), `P5Gamepad` (326),
 `SGamepad` (241), `XGamepad` (226), each in Default/Alt/Light/Dark/Retro-style
-variants. **The archive contains no licence, credits or readme file**, so the
-owner's statement that it is CC0 1.0 is **unverified from the archive itself**;
-confirm against the publisher's page before commercial use.
+variants. **The archive itself contains no licence, credits or readme file.** Licence evidence
+is a screenshot of the publisher's page supplied by the owner (2026-10-12): pack
+"Input Prompts" by **JulioCacko**, distributed on itch.io and FAB, published
+2023-06-30, last updated 2025-02-03; asset licence **Creative Commons Zero v1.0
+Universal (CC0 1.0)**: "free to use in any project, commercial or non-commercial,
+no attribution required (but appreciated)"; code licence MIT; icons 128x128 in 5
+colour variants (4 gamepad families + keyboard/mouse); "no generative AI used".
+Status: **licence identified from owner-supplied publisher-page evidence; not
+independently verified by me** (no live page fetched, and the zip carries no
+licence text). Suggested hardening before commercial release: save the pack's
+page/licence text into the repository next to the glyphs when they are imported.
 
 **Not imported.** Ocean Spore is a touch-only Android game: it has no controller
 or keyboard input and no Steam/desktop target, so there is nothing to map glyphs
