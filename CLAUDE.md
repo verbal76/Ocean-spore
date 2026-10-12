@@ -2,8 +2,23 @@
 
 Hot Attic Games, Android (Expo SDK 54 / RN 0.81, legacy architecture). Package
 `com.verbal76.oceanspore`. Version = `package.json` -> `oceanSpore.build`
-(versionCode = versionName). APK name `OceanSpore-v<build>.apk`. Rollback
+(versionCode = versionName). Release names follow the studio standard:
+`Ocean Spore Build <N> APK.apk`, release `Ocean Spore Build <N>`, tag `build-<N>`.
+Rollback
 checkpoint: v40 = `e2712522338cc1600d52be9bc78d5e9a293eeae3`.
+
+## Studio standard
+
+`docs/HOT_ATTIC_GAMES_MASTER_STANDARD.md` (v2.0, extracted from the owner's .doc) is
+the studio-wide contract: three platforms (Android, Windows, Linux) from one source
+line, one build number, one GitHub Release, Steam Deck/Machine requirements, safe
+updates, no accidental publishing. Project-specific restrictions below still win.
+Doc map (equivalents of the standard's required files): `docs/PLATFORM_SUPPORT.md`,
+`docs/UPDATES.md`, `docs/RELEASING.md` (= RELEASES), `docs/STEAM_HARDWARE_CHECKLIST.md`,
+`docs/BRANCH-LEDGER.md`, `docs/ASSET-LICENSES.md` + `docs/THIRD-PARTY-LICENSES.md`
+(= THIRD_PARTY_ASSETS). **Windows and Linux are required by the standard and are
+NOT implemented**: adding them (engine/shell, input adapters, glyphs, Steam) is a
+major scope change that needs explicit owner approval.
 
 ## GitHub Actions budget policy (STANDING OWNER DIRECTIVE)
 
@@ -15,7 +30,8 @@ or can I prove it locally?*
   integrity, lint, tests, version). Also `npx expo export --platform android`
   when bundling is in doubt. Debug locally, never by re-running CI.
 - Nothing runs automatically on push or PR update. `android-build.yml` starts only
-  on `workflow_dispatch` or the `publish-apk` PR label; `ci.yml` is called by the
+  on `workflow_dispatch` (inputs: platform, source_sha, build_number, destination) or
+  the `publish-apk` PR label; `ci.yml` is called by the
   build and OTA workflows (and manual dispatch); `prune-artifacts.yml` is manual.
 - Docs/research/bookkeeping changes use zero Actions minutes.
 - Do not build an APK/AAB/EXE unless it is genuinely needed for physical testing
@@ -64,7 +80,8 @@ not versions. Full detail: `docs/ARCHITECTURE.md`; machine-readable record:
 - Every release build comes from an explicit, approved **full SHA**. The guard
   (`scripts/check-source-line.py --release`) requires `HEAD == approved SHA`, that
   SHA on the authorized line (`docs/source-line.json` `authoritativeLine.branches`),
-  and a manifest/APK that name the same SHA. Builds record provenance
+  a manifest/APK that name the same SHA, manifest + `checksums.sha256` matching the
+  packaged files, and a build number with no existing `build-N`/`vN` tag or release. Builds record provenance
   (`build-provenance.json`, `release-manifest.json`). A multiplatform release uses
   the same SHA for all artifacts; never substitute a different SHA.
 - Branch accounting is a separate, **non-blocking** audit

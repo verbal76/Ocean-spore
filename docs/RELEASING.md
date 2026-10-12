@@ -7,7 +7,8 @@
 | `package.json` `oceanSpore.build` | the one number you bump (currently 40) |
 | versionName | the build number as text, e.g. `40` |
 | versionCode | the build number, strictly increasing |
-| APK file | `OceanSpore-v<build>.apk`, e.g. `OceanSpore-v40.apk` |
+| APK file | `Ocean Spore Build <N> APK.apk` (studio standard naming), e.g. `Ocean Spore Build 42 APK.apk` |
+| Release | one per build: title `Ocean Spore Build <N>`, immutable tag `build-<N>`, assets: the APK, `build-manifest.json`, `checksums.sha256`. v40/v41 (pre-standard) keep their original `v<N>` tags and `OceanSpore-v<N>.apk` names; historical releases are never renamed |
 | Derived from | history: releases build-5..build-39 (last device build 39, versionCode 1) so the first candidate is 40. CI run numbers do NOT drive it (they count failed/test runs). Bump deliberately for every APK that reaches the owner |
 
 CI verifies the built APK's package id, versionCode and versionName match
@@ -30,13 +31,9 @@ A build number identifies exactly one release: the build refuses a `v<build>` th
 already has a tag or GitHub Release (bump `oceanSpore.build` for every new
 candidate; current build 41 is already released as `v41`).
 
-## OTA updates (`eas-update.yml`)
+## OTA updates
 
-Manual only. Run it from the Actions tab and retype the `runtimeVersion` from
-`app.json` (currently `2.1.0`); a mismatch aborts, so an update can't be sent
-across a native boundary. **Bump `runtimeVersion` whenever native code or
-native config changes** (SDK upgrade, new native module, permission change).
-Old `1.0.0` installs never receive updates built for runtime `2.0.0`/`2.1.0`.
+See `docs/UPDATES.md` (manual only; runtimeVersion-confirmed; source-line gated).
 
 ## Signing (owner decision required)
 
