@@ -87,8 +87,10 @@ independently verified by me** (no live page fetched, and the zip carries no
 licence text). Suggested hardening before commercial release: save the pack's
 page/licence text into the repository next to the glyphs when they are imported.
 
-**Not imported.** Ocean Spore is a touch-only Android game: it has no controller
-or keyboard input and no Steam/desktop target, so there is nothing to map glyphs
-to, and adding ~17 MB of unused art would only bloat the APK. The archive is kept
-outside the repository. If a controller or desktop target is ever authorized, the
-glyph mapping and licence verification become part of that work.
+**Imported (2026-10-12, desktop target only).** 78 of the archive's PNGs were copied
+byte-for-byte to `assets/glyphs/` (Xbox / Steam Deck ABXY, PS5, PS4, Switch, keyboard keys), with
+a manifest of their SHA-256s and archive paths and `assets/glyphs/LICENSE.md`. They are bundled
+only in the Windows/Linux builds (`*.web.ts` table; `scripts/check-android-isolation.mjs` fails
+CI if one reaches the Android bundle). The full archive stays outside the repository. The pack
+has **no Xbox Start/Menu glyph**; the UI shows the text MENU instead of inventing artwork.
+Remaining evidence step before commercial release: re-confirm CC0 on the live publisher page.

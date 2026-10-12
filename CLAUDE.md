@@ -16,9 +16,14 @@ updates, no accidental publishing. Project-specific restrictions below still win
 Doc map (equivalents of the standard's required files): `docs/PLATFORM_SUPPORT.md`,
 `docs/UPDATES.md`, `docs/RELEASING.md` (= RELEASES), `docs/STEAM_HARDWARE_CHECKLIST.md`,
 `docs/BRANCH-LEDGER.md`, `docs/ASSET-LICENSES.md` + `docs/THIRD-PARTY-LICENSES.md`
-(= THIRD_PARTY_ASSETS). **Windows and Linux are required by the standard and are
-NOT implemented**: adding them (engine/shell, input adapters, glyphs, Steam) is a
-major scope change that needs explicit owner approval.
+(= THIRD_PARTY_ASSETS). **Windows and Linux are implemented** (owner-approved 2026-10-12) as an Electron shell
+(`desktop/`) hosting the unmodified Expo web export of the shared `src/`; see
+`docs/PLATFORM_SUPPORT.md` for exactly what is built / launched / physically tested (Linux
+packaged build launched under Xvfb; Windows only packaged; nothing on real hardware). Steamworks
+(Input, Cloud, keyboard, SteamPipe) is NOT implemented (no App ID/credentials). Desktop rules:
+no desktop file may reach the Android bundle (`.web.ts(x)` platform extensions + DESKTOP guards;
+CI runs `scripts/check-android-isolation.mjs`); desktop input only feeds the same sim fields as
+touch; desktop saves/prefs stay in the per-user data dir, prefs never synced.
 
 ## GitHub Actions budget policy (STANDING OWNER DIRECTIVE)
 
@@ -26,12 +31,12 @@ Actions minutes are shared across the owner's projects and the monthly budget is
 small. Before starting any hosted workflow ask: *does this need GitHub Actions,
 or can I prove it locally?*
 
-- Validate locally first: `npm run verify` (brand, audio drift, typecheck, asset
+- Validate locally first: `npm run verify`, plus `node scripts/desktop-package.mjs` / `desktop-smoke.mjs` for desktop (brand, audio drift, typecheck, asset
   integrity, lint, tests, version). Also `npx expo export --platform android`
   when bundling is in doubt. Debug locally, never by re-running CI.
-- Nothing runs automatically on push or PR update. `android-build.yml` starts only
-  on `workflow_dispatch` (inputs: platform, source_sha, build_number, destination) or
-  the `publish-apk` PR label; `ci.yml` is called by the
+- Nothing runs automatically on push or PR update. `native-build.yml` starts only
+  on `workflow_dispatch` (inputs: platform, source_sha, build_number, destination) only;
+  labels, pushes, merges and tags can never build or publish. `ci.yml` is called by the
   build and OTA workflows (and manual dispatch); `prune-artifacts.yml` is manual.
 - Docs/research/bookkeeping changes use zero Actions minutes.
 - Do not build an APK/AAB/EXE unless it is genuinely needed for physical testing
@@ -59,7 +64,8 @@ or can I prove it locally?*
   permissions (see `scripts/check-manifest.py`), stable package id, and the HAG
   launch flow (canonical logo SHA is enforced by `scripts/check-brand.py`).
 - Environment quirk: the session integration token cannot dispatch workflows or
-  push tags; the `publish-apk` label (clear, then re-add) is the working trigger.
+  push tags, so an agent session cannot start a hosted build: the owner dispatches
+  it from the Actions tab (that is intended; there is no label shortcut).
 
 ## One authoritative source (STANDING OWNER POLICY)
 
@@ -82,8 +88,9 @@ not versions. Full detail: `docs/ARCHITECTURE.md`; machine-readable record:
   SHA on the authorized line (`docs/source-line.json` `authoritativeLine.branches`),
   a manifest/APK that name the same SHA, manifest + `checksums.sha256` matching the
   packaged files, and a build number with no existing `build-N`/`vN` tag or release. Builds record provenance
-  (`build-provenance.json`, `release-manifest.json`). A multiplatform release uses
-  the same SHA for all artifacts; never substitute a different SHA.
+  (`build-provenance.json`, per-platform manifest parts merged by `merge-manifests.mjs`
+  into `build-manifest.json`). A multiplatform release uses the same SHA for all
+  artifacts, is all-or-nothing, and never substitutes a different SHA.
 - Branch accounting is a separate, **non-blocking** audit
   (`scripts/audit-branches.py`; `npm run audit:branches` for strict periodic
   review). Account for a branch in `docs/BRANCH-LEDGER.md` before discarding it;
@@ -94,6 +101,10 @@ not versions. Full detail: `docs/ARCHITECTURE.md`; machine-readable record:
 - Each repository is independent; do not touch other projects' repos.
 
 ## Known release blockers (owner decisions; see the docs)
+
+- Nothing has been tested on physical hardware (phone, Windows PC, Linux PC, Steam Deck), and
+  Windows packages have never been launched. Steamworks (App ID, Input, Cloud, keyboard,
+  SteamPipe) is not integrated. See `docs/PLATFORM_SUPPORT.md`, `docs/STEAM_HARDWARE_CHECKLIST.md`.
 
 - Signing: releases use the public template debug key. Fine for owner sideload,
   not for distribution or Play. `docs/SIGNING.md`.

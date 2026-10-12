@@ -16,10 +16,8 @@ discarded. (Standing owner policy; see `CLAUDE.md`.)
 
 ## Targets
 
-One TypeScript/React Native codebase (Expo SDK 54). Currently supported target:
-**android**. A Windows or other target has not been requested; if one is added it
-must reuse `src/` (game world, progression, save format, audio manager) unchanged
-and only add platform adapters. Existing platform seams, all isolated:
+One TypeScript/React Native codebase (Expo SDK 54). Supported targets: **android**, **windows** and **linux** (Electron shell hosting the web export of the
+same `src/`; see `docs/PLATFORM_SUPPORT.md`). Platform adapters are isolated:
 
 - input: `src/game/controls.ts` (pure logic) + touch wiring in `Game.tsx`; a
   keyboard/mouse adapter would feed the same `ControlState`
@@ -27,7 +25,8 @@ and only add platform adapters. Existing platform seams, all isolated:
   has no rendering or platform imports
 - audio: `src/audio/AudioManager.ts` is pure; `src/audio/index.ts` is the expo-audio adapter
 - persistence: `src/state/*` (schema/migration are pure; storage is an adapter)
-- native packaging: `app.json`, `plugins/`, and the CI build only
+- native packaging: `app.json`, `plugins/` (Android) and `desktop/` (Windows/Linux) plus the CI build only
+- desktop: `src/input/*` (action layer), `*.web.ts(x)` adapters, `desktop/` shell (see `desktop/README.md`)
 
 A fix to shared logic (`src/game`, `src/state`, `src/data`) applies to all targets
 by construction. A fix to an adapter must be evaluated against the other targets.
@@ -46,8 +45,8 @@ never papered over with a different SHA.
 ## Enforcement: two separate responsibilities
 
 **1. Release authorization** (`scripts/check-source-line.py`, gating). A release is
-built from an **explicit, approved, full 40-hex commit SHA** (the PR head at label
-time, or the dispatched commit). In `--release` mode it fails unless:
+built from an **explicit, approved, full 40-hex commit SHA** (the `source_sha` input of
+the manual dispatch). In `--release` mode it fails unless:
 
 - the checkout `HEAD` is exactly that SHA (a branch name or short SHA is rejected;
   a branch tip is never substituted),

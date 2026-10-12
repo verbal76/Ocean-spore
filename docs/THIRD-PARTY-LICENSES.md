@@ -29,6 +29,14 @@ are **identified, not independently verified**.
 
 MIT: 525, ISC: 53, BSD-3-Clause: 15, BSD-2-Clause: 14, Apache-2.0: 12, MPL-2.0: 12, BlueOak-1.0.0: 10, Unlicense: 2, (MIT OR CC0-1.0): 2, Python-2.0: 1, CC-BY-4.0: 1, 0BSD: 1, CC0-1.0: 1, (BSD-3-Clause OR GPL-2.0): 1, (MIT AND Zlib): 1, Apache 2.0: 1, (BSD-2-Clause OR MIT OR Apache-2.0): 1, UNKNOWN: 1
 
+## Desktop shell (Windows / Linux builds only)
+
+- **Electron 44.7.0**: MIT. Every desktop package ships Electron's `LICENSE` and Chromium's
+  `LICENSES.chromium.html` (third-party notices for Chromium, FFmpeg and others) next to the
+  executable. Build tooling (`@electron/packager`) is not shipped.
+- **Controller glyphs** ("Input Prompts" by JulioCacko): CC0 1.0 per the publisher page; see
+  `assets/glyphs/LICENSE.md` and `docs/ASSET-LICENSES.md`.
+
 Review notes: no GPL-only, AGPL or proprietary package was found. Dual-licensed
 entries (`node-forge`: BSD-3-Clause OR GPL-2.0; `type-fest`: MIT OR CC0) are
 usable under the permissive option. `lightningcss` (MPL-2.0, file-level copyleft)

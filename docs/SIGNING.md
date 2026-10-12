@@ -48,13 +48,22 @@ other, keeping app data (same package, same certificate, higher versionCode).
 
 ## Owner / device verification needed (cannot be settled from the repo)
 
-1. Which devices currently have Ocean Spore installed and from which build
-   (`build-39` was downloaded twice per the release page). To confirm a device's
-   installed certificate: `adb shell dumpsys package com.verbal76.oceanspore`
-   (look at the signing certificate / `signatures`), or install v41 over it and see
-   that it updates without uninstalling.
-2. Whether any distribution beyond the owner's own devices (testers, Play) is
-   planned. If not, the debug certificate is an acceptable, documented risk.
-3. Whether a Play Console exists for this package id.
+Exact steps (no secrets involved; you only read a public fingerprint):
+
+1. **What is installed on your phone?** USB-debugging on, then:
+   `adb shell pm path com.verbal76.oceanspore` (prints `package:/data/app/.../base.apk`), then
+   `adb pull <that path> installed.apk` and
+   `apksigner verify --print-certs installed.apk` (Android SDK build-tools).
+   Compare "Signer #1 certificate SHA-256 digest" with **`fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c`**.
+   Equal -> v40/v41 install over it as an update. Different -> uninstall first (loses local save).
+   Without adb: install v41 over the existing app; "App not installed / signatures do not match" means a different key.
+2. **Who else has it?** (`build-39` was downloaded twice.) If only your own devices matter, the
+   debug certificate is an acceptable, documented risk; if testers or Play are planned, decide
+   on an owner-held key first (do not create one in the repo; keep it in a password manager and
+   as a repository secret).
+3. **Play Console:** whether the package name `com.verbal76.oceanspore` is already registered
+   decides whether Play App Signing can adopt a key or must start fresh.
+4. **Windows desktop builds are unsigned** (no code-signing certificate): SmartScreen will warn
+   on first run; a certificate and reputation are an owner purchase. Linux needs none.
 
 Do not rotate or replace the signing identity without that decision.

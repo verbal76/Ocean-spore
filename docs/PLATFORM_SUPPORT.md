@@ -1,57 +1,75 @@
 # Platform support (actual state, studio standard v2.0)
 
-The standard requires three targets from one source line: Android APK, Windows
-x86-64 (ZIP) and native Linux x86-64 (TAR.GZ, Steam Deck / Steam Machine
-suitable). Status as of 2026-10-12 at the time of writing:
+Three targets from one source line (`src/` is shared; nothing is forked):
 
-| Target | State | Evidence |
-|---|---|---|
-| Android | **Implemented.** Expo SDK 54 / RN 0.81, `ccr` line, v41 pre-release | `OceanSpore-v41.apk` (SHA-256 `544ebaa2...`), CI-built; **not yet device-tested** |
-| Windows x86-64 | **Not implemented** (required by the standard) | no build, no packaging, no adapter in the repo |
-| Linux x86-64 | **Not implemented** (required by the standard) | same |
+| Target | Output | Configured | Built (locally) | Launched | Physically tested |
+|---|---|---|---|---|---|
+| Android | `Ocean Spore Build N APK.apk` | yes (Expo SDK 54) | yes (v41 CI-built) | no | **no** |
+| Windows x86-64 | `Ocean Spore Build N EXE.zip` | yes (Electron 44.7.0, `desktop/`) | yes: PE32+ x86-64 executable, 154 MB zip | **no** (no Windows machine) | **no** |
+| Linux x86-64 | `Ocean Spore Build N Linux.tar.gz` | yes (same shell) | yes: ELF x86-64, 121 MB tar.gz | **yes**, packaged build, Xvfb + software GL | **no** (no Steam Deck / physical PC) |
 
-`build --platform android|windows|linux|all` is `APK Build` -> *Run workflow*
-(`platform` input). `windows`, `linux` and `all` fail immediately with an explicit
-message; nothing is skipped silently.
+`build --platform android|windows|linux|all` is the manual **Native Build** workflow
+(`.github/workflows/native-build.yml`, inputs `platform`, `source_sha`, `build_number`,
+`destination`). It has never been run on GitHub; each part was validated locally (below).
 
-## Shared vs platform code today
+## How the targets share code
 
-Shared and platform-neutral: `src/game` (world, simulation, TouchController is
-pure), `src/state` (save schema/migration), `src/data`, `src/audio/AudioManager`.
-Android/RN adapters: touch wiring in `Game.tsx`, `src/render3d` (expo-gl + three),
-`src/audio/index.ts` (expo-audio), `src/state/persistence.ts` (expo-file-system),
-expo-updates, `app.json`, `plugins/`.
+* Shared, platform-neutral: `src/game` (world, simulation, controls math), `src/state`
+  (save schema), `src/data`, `src/audio/AudioManager`, `src/render3d` (three.js).
+* Platform adapters use Metro's platform extensions, so **Android bundles never include a
+  desktop file**: `src/state/persistence(.web).ts`, `src/render3d/assetBytes(.web).ts`,
+  `src/platform/{desktopLayer,exit}(.web).ts`, `src/desktop/{PromptBar,MenuFrame}(.web).tsx`.
+  Desktop-only branches in shared files (`Game.tsx`, `App.tsx`, `SplashScreen.tsx`,
+  `CaptainScreen.tsx`) are guarded by `DESKTOP` (`Platform.OS === 'web'`) or by no-op
+  defaults, and Android's behavior is unchanged (`viewScale` is 1; touch controls and
+  portrait layout are untouched).
+* Desktop input is a shared action layer (`src/input/*`) that feeds the **same** sim fields
+  (`dx`, `dy`, `fire`) and tap actions the touch controller feeds; a unit test proves a
+  full-deflection key/stick equals a full touch drag.
 
-## Feasibility assessment for Windows/Linux (a proposal, NOT started; needs owner approval)
+## Desktop features (implemented and locally verified)
 
-The standard says not to rely on an Android-only architecture without a realistic
-desktop path, and to keep the current engine unless it is a major limitation.
-Evidence available:
+| Area | State |
+|---|---|
+| Launch in a window, rendering, 15/15 GLB models, audio, clean exit | Verified on the packaged Linux build (smoke test) |
+| Keyboard: WASD/arrows move, Space/J fire, E/Q weapon, R auto, F dock, Esc/P pause | Unit-tested + smoke-driven |
+| Gamepad (standard mapping, Xbox/PlayStation/Switch/Steam Deck): stick/D-pad, A/RT fire, X/RB weapon, Y/LB auto, B dock, Start pause | Unit-tested with fake pads; **no real controller tested** |
+| Controller/keyboard-only menus (focus navigation over every screen, Esc/B back, pause menu) | Keyboard verified in the smoke test; pad paths unit-tested |
+| Button prompts from the CC0 glyph pack, auto-detected family, manual override (pause menu), anti-flicker | Glyph rendering seen in screenshots; detection unit-tested |
+| Landscape: menus keep their portrait proportion, gameplay camera scaled so the visible field never exceeds a phone's | Unit-tested; screenshots at 1280x800 |
+| Saves: durable, atomic, backups, corruption handling, outside the install dir | Unit-tested against real files; save written/read in the packaged smoke test |
+| Fullscreen: F11, pause-menu toggle, remembered per device | Implemented; **not exercised under a real window manager** |
+| Focus loss / controller unplug while playing: release input and pause | Unit-tested |
 
-- The JS game already runs in a browser engine: the Expo **web** export was driven
-  in Chromium during development (multi-touch and audio end-to-end scripts passed;
-  three.js renders through WebGL). That is the same engine Electron embeds, so
-  **one codebase -> desktop shell** is plausible.
-- Realistic path (recommended): wrap the web export in an **Electron** shell
-  (Windows ZIP + Linux TAR.GZ from the same SHA), reusing 100% of `src/game`,
-  `src/state`, `src/data`. Steamworks (Steam Input, Cloud, on-screen keyboard)
-  via `steamworks.js`. `react-native-windows` is not a path (no Linux).
-- Not proven and required first: an Electron package actually launching on
-  Windows/Linux (nobody has built it), WebGL performance on Steam Deck hardware,
-  and the items below.
+## Electron proof-of-concept evaluation (local, Linux, Xvfb + software rendering)
 
-Work the standard implies for desktop (all RED until approved; none done):
+Evidence from `scripts/desktop-smoke.mjs` on the packaged Linux build (Electron 44.7.0 /
+Chromium 152). Software GL (SwiftShader) in a virtual display, so frame numbers are a
+floor, **not** hardware performance. Nothing here was measured on a Steam Deck.
 
-1. Gamepad + keyboard/mouse input adapter feeding the existing `ControlState`,
-   and controller-navigable menus (the game is touch-only today).
-2. Controller glyph mapping from the studio `Source.zip` (CC0 1.0 per the pack's
-   publisher page; see `docs/ASSET-LICENSES.md`).
-3. Landscape layouts: 1280x800 / 16:10 / 16:9. The game is portrait-only today
-   (`app.json` orientation); `buildLayout` takes any size but the menus were
-   designed for portrait.
-4. Desktop persistence: `documentDirectory` is null on web, so saves do not
-   persist there today; needs a filesystem/localStorage adapter (same schema).
-5. Steam Cloud, offline behaviour, suspend/resume, launcher-free start, graphics
-   settings, SteamPipe packaging; all need Steamworks access and hardware.
+| Question | Result |
+|---|---|
+| Launches in a desktop window; same gameplay code, no duplication | Yes: the web export of the shared `src/`; 0 game files in `desktop/` |
+| Rendering initialises; assets load | Yes: WebGL context, 15/15 GLB models, colormap, audio files, glyphs, all from `app://` |
+| Audio | Initialised (autoplay allowed by the shell); audible output not verifiable here |
+| Clean exit; saves flushed | Yes (`exit=0`, save present) |
+| Startup | Page loaded in ~0.15-0.25 s; first 3D frames ~1.0-1.3 s after starting a run |
+| Frame pacing (software GL, 1280x800) | avg 26-30 ms (33-39 fps), p95 43-56 ms, p99 93-129 ms: dominated by CPU rasterising; real GPUs are far faster, unmeasured |
+| Memory (working set, 5 processes) | ~735 MB total, of which ~238 MB is the software GPU process; ~500 MB for browser+renderer+utilities |
+| Input | Keyboard and a (fake) standard gamepad both verified through the real renderer; no physical pad |
+| Packaging complexity | Low: `@electron/packager` + tar/zip; no installer, no Wine; 121 MB (Linux) / 154 MB (Windows) archives |
+| Steam Deck suitability | Plausible (Chromium/ANGLE runs on Vulkan on SteamOS; ~0.5 GB RAM; 2D-ish low-poly scene) but **unproven**: needs real hardware for frame pacing, thermals, battery and suspend/resume |
+| Material architectural problem? | None found. Costs: ~120-150 MB per package, Chromium memory, and the `--no-sandbox` launcher on Linux |
 
-See docs/STEAM_HARDWARE_CHECKLIST.md for requirement-by-requirement status.
+**Recommendation:** continue with Electron. Revisit only if real-hardware tests show
+unacceptable frame pacing or memory (alternatives would be a Godot/Unity port, which is an
+engine migration and needs your approval).
+
+## Not done / needs hardware, credentials or an owner decision
+
+* Windows execution, any physical-device or Steam Deck test, real-GPU frame pacing.
+* Steamworks: Steam Input, Steam Cloud, on-screen keyboard, SteamPipe (no App ID or credentials; nothing was faked).
+* Windows code signing / SmartScreen reputation; Linux packaging is a plain tar.gz.
+* Landscape art direction beyond the centered portrait menu column is an owner aesthetic call.
+
+See `docs/STEAM_HARDWARE_CHECKLIST.md`, `docs/UPDATES.md` and `desktop/README.md`.

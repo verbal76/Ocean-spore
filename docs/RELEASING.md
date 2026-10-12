@@ -8,28 +8,33 @@
 | versionName | the build number as text, e.g. `40` |
 | versionCode | the build number, strictly increasing |
 | APK file | `Ocean Spore Build <N> APK.apk` (studio standard naming), e.g. `Ocean Spore Build 42 APK.apk` |
-| Release | one per build: title `Ocean Spore Build <N>`, immutable tag `build-<N>`, assets: the APK, `build-manifest.json`, `checksums.sha256`. v40/v41 (pre-standard) keep their original `v<N>` tags and `OceanSpore-v<N>.apk` names; historical releases are never renamed |
+| Release | one per coordinated build: title `Ocean Spore Build <N>`, immutable tag `build-<N>`, assets: the APK, `build-manifest.json`, `checksums.sha256`. v40/v41 (pre-standard) keep their original `v<N>` tags and `OceanSpore-v<N>.apk` names; historical releases are never renamed |
 | Derived from | history: releases build-5..build-39 (last device build 39, versionCode 1) so the first candidate is 40. CI run numbers do NOT drive it (they count failed/test runs). Bump deliberately for every APK that reaches the owner |
 
 CI verifies the built APK's package id, versionCode and versionName match
 before uploading it, and records the file's SHA-256 in the run summary.
 
-## Building an APK
+## Building a release (Android / Windows / Linux)
 
-Pushes and PR updates build **nothing** (Actions budget policy, `CLAUDE.md`).
-Validate locally with `npm run verify` (same checks as `ci.yml`). When a
-candidate is actually needed for a device or release, start the build
-deliberately; it runs `ci.yml`, then Gradle, the manifest and 16 KB gates, and
-keeps the APK artifact for 1 day (the Release is the durable copy).
+Pushes, PR updates, merges, labels and tags build **nothing** (Actions budget policy,
+`CLAUDE.md`). Validate locally first:
 
-To build and publish a GitHub Release: Actions -> APK Build -> Run workflow ->
-`publish = true`, or add the **`publish-apk`** label to the pull request (clear and re-add
-it to rebuild), which builds the PR head commit and publishes (other labels do nothing). The release is marked **pre-release**; the tag is
-`v<versionName>` and points at the built commit.
+    npm run verify                                            # lint, types, tests, source guard...
+    node scripts/desktop-package.mjs --platform all --out dist-desktop
+    node scripts/desktop-smoke.mjs --packaged "dist-desktop/packages/Ocean Spore-linux-x64"
 
-A build number identifies exactly one release: the build refuses a `v<build>` that
-already has a tag or GitHub Release (bump `oceanSpore.build` for every new
-candidate; current build 41 is already released as `v41`).
+When a candidate is actually needed, the OWNER starts **Actions -> Native Build -> Run
+workflow** with `platform` (android|windows|linux|all), `source_sha` (full 40-char SHA),
+`build_number` (must equal `oceanSpore.build` at that SHA) and `destination`
+(`local_only` = a 3-day workflow artifact, nothing published; `github_releases` = one
+pre-release). The workflow: plans -> `ci.yml` -> builds each platform from that exact SHA
+(Android APK with the manifest/16 KB/signing gates; one export of `src/` packaged for
+Windows and Linux, PE check, packaged Linux smoke test) -> **assembles all-or-nothing**
+(one SHA, exactly the requested platforms, `build-manifest.json` + `checksums.sha256`
+verified against the files) -> only for `github_releases` publishes `Ocean Spore Build N`
+(tag `build-N`) with `Ocean Spore Build N APK.apk`, `... EXE.zip`, `... Linux.tar.gz`.
+It refuses a build number that already has a tag or release. It has not been run on GitHub
+yet; every script it calls was run locally.
 
 ## OTA updates
 
