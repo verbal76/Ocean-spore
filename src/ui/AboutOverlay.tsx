@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Updates from 'expo-updates';
 import * as Clipboard from 'expo-clipboard';
 import { COLORS } from '../colors';
@@ -34,6 +34,7 @@ export function AboutOverlay({ onClose }: Props) {
     ['STUDIO', 'Hot Attic Games'],
     ['VERSION CODE', String(BUILD_INFO.androidVersionCode ?? '-')],
     ['BUILD', `#${BUILD_INFO.buildNumber}`],
+    ['PLATFORM', `${Platform.OS} ${Platform.Version}`],
     ['COMMIT', `${BUILD_INFO.commitShort}${BUILD_INFO.dirty ? ' [dirty]' : ''}`],
     ['BRANCH', BUILD_INFO.branch],
     ['BUILT', builtAtShort],

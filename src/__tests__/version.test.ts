@@ -2,9 +2,10 @@ const { resolveVersion, parseBuildNumber, currentVersion, LAST_HISTORICAL_BUILD 
 const pkg = require('../../package.json');
 
 describe('version identity', () => {
-  test('build 40: versionName, versionCode and APK name all agree', () => {
+  test('build 40: versionName, versionCode, names and tag all agree (studio standard naming)', () => {
     expect(resolveVersion(40)).toEqual({
-      versionName: '40', versionCode: 40, buildNumber: 40, apkFileName: 'OceanSpore-v40.apk',
+      versionName: '40', versionCode: 40, buildNumber: 40, gameTitle: 'Ocean Spore',
+      apkFileName: 'Ocean Spore Build 40 APK.apk', releaseTitle: 'Ocean Spore Build 40', releaseTag: 'build-40',
     });
   });
 
@@ -26,7 +27,7 @@ describe('version identity', () => {
 
   test('accepts the number as a string (environment override)', () => {
     expect(resolveVersion('41').versionCode).toBe(41);
-    expect(currentVersion({ BUILD_NUMBER: '60' }).apkFileName).toBe('OceanSpore-v60.apk');
+    expect(currentVersion({ BUILD_NUMBER: '60' }).apkFileName).toBe('Ocean Spore Build 60 APK.apk');
   });
 
   test('rejects garbage so a bad versionCode can never ship', () => {
@@ -35,9 +36,11 @@ describe('version identity', () => {
     }
   });
 
-  test('APK file name is <GameName>-v<Version>.apk and never a generic name', () => {
-    const n = resolveVersion(7).apkFileName;
-    expect(n).toMatch(/^OceanSpore-v\d+\.apk$/);
-    expect(n).not.toMatch(/app-(debug|release)|android|build\.apk|artifact/);
+  test('APK file name is "Game Title Build NN APK.apk": human readable, no hashes/branches/CI ids', () => {
+    const v = resolveVersion(7);
+    expect(v.apkFileName).toBe('Ocean Spore Build 7 APK.apk');
+    expect(v.apkFileName).not.toMatch(/app-(debug|release)|[0-9a-f]{7,}|artifact/);
+    expect(v.releaseTitle).toBe('Ocean Spore Build 7');           // no extra classification in the title
+    expect(v.releaseTag).toBe('build-7');
   });
 });

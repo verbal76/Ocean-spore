@@ -68,11 +68,34 @@ describe('no accidental OTA publication', () => {
 
 describe('APK publishing is deliberate', () => {
   const apk = wf('android-build.yml');
-  test('the release job needs dispatch(publish) or the publish-apk label', () => {
-    const cond: string = apk.jobs.release.if;
+  test('only a manual dispatch or the publish-apk label plans a build; dispatch defaults to local_only', () => {
+    const cond: string = apk.jobs.plan.if;
     expect(cond).toMatch(/workflow_dispatch/);
     expect(cond).toMatch(/publish-apk/);
     expect(cond).not.toMatch(/event_name == 'push'/);
+    expect(apk.on.workflow_dispatch.inputs.destination.default).toBe('local_only');
+    expect(apk.jobs.release.if).toMatch(/destination == 'github_releases'/);
+  });
+  test('dispatch inputs follow the studio standard (platform, source_sha, build_number, destination)', () => {
+    const i = apk.on.workflow_dispatch.inputs;
+    expect(i.platform.options).toEqual(['android', 'windows', 'linux', 'all']);
+    expect(i.source_sha.required).toBe(true);
+    expect(i.build_number.required).toBe(true);
+    expect(i.destination.options).toEqual(['local_only', 'github_releases']);
+  });
+  test('unsupported platforms fail visibly instead of being skipped', () => {
+    const plan = apk.jobs.plan.steps[0].run;
+    expect(plan).toMatch(/not supported/);
+    expect(plan).toMatch(/exit 1/);
+    expect(plan).toMatch(/\{40\}/);                                    // full SHA required
+  });
+  test('releases use the standard title, tag and asset set', () => {
+    const pub = apk.jobs.release.steps.find((s: any) => s.name === 'Publish');
+    const files: string = pub.with.files;
+    for (const f of ['build-manifest.json', 'checksums.sha256']) expect(files).toContain(f);
+    expect(pub.with.fail_on_unmatched_files).toBe(true);
+    expect(pub.with.tag_name).toMatch(/steps\.rel\.outputs\.tag/);
+    expect(pub.with.name).toMatch(/steps\.rel\.outputs\.title/);
   });
   test('default permissions are read-only; only the release job may write', () => {
     expect(apk.permissions).toEqual({ contents: 'read' });
@@ -96,8 +119,7 @@ describe('Actions budget policy (nothing builds on a plain push)', () => {
   test('the APK build has no push trigger and PRs only act on a label', () => {
     expect(hasKey(apk.on, 'push')).toBe(false);
     expect(apk.on.pull_request.types).toEqual(['labeled']);
-    expect(apk.jobs.ci.if).toMatch(/workflow_dispatch/);
-    expect(apk.jobs.ci.if).toMatch(/publish-apk/);
+    expect(apk.jobs.ci.needs).toBe('plan');
   });
   test('the shared CI workflow is only called or dispatched, never push/PR triggered', () => {
     expect(hasKey(ci.on, 'push')).toBe(false);
@@ -154,12 +176,12 @@ describe('single source of truth (docs/source-line.json)', () => {
     const names = apk.jobs.build.steps.map((s: any) => s.name);
     const gate = apk.jobs.build.steps.find((s: any) => s.name === 'Verify approved source SHA');
     expect(gate.run).toMatch(/check-source-line\.py --release/);
-    expect(gate.env.APPROVED_SHA).toMatch(/pull_request\.head\.sha/);
+    expect(gate.env.APPROVED_SHA).toMatch(/plan\.outputs\.sha/);
     expect(names.indexOf('Verify approved source SHA')).toBeLessThan(names.indexOf('Build release APK'));
-    expect(names).toContain('Release manifest (source SHA + artifact hashes)');
-    expect(names).toContain('Manifest names the approved SHA');
+    expect(names).toContain('Build manifest and checksums');
+    expect(names).toContain('Manifest and checksums match the packaged files');
     const rel = JSON.stringify(apk.jobs.release);
-    expect(rel).toMatch(/release-manifest\.json/);
+    expect(rel).toMatch(/build-manifest\.json/);
     expect(rel).toMatch(/--verify-manifest/);                              // release job re-checks
   });
   test('the policy is durable: CLAUDE.md, architecture doc and ledger exist', () => {

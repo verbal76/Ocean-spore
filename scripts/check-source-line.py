@@ -13,12 +13,14 @@ Modes
                         ancestor of an authorized line branch, the clone is not shallow, and
                         the build ref is not forbidden. A branch name is never accepted and
                         a branch tip is never substituted for the approved SHA.
-  --verify-manifest F   (needs --approved-sha) release-manifest.json names the same SHA.
+  --verify-manifest F   (needs --approved-sha) build-manifest.json names the same SHA.
+                        With --files-dir D also proves every listed artifact in D has the
+                        recorded size and SHA-256 and that checksums.sha256 agrees.
                         Needs no git history.
 
 Options: --repo DIR, --config FILE (tests).
 """
-import json, os, re, sys
+import hashlib, json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sourceline_common import ROOT, Repo, arg, load_config  # noqa: E402
@@ -31,7 +33,30 @@ def build_ref():
             or os.environ.get("GITHUB_REF_NAME") or "").replace("refs/heads/", "")
 
 
-def verify_manifest(path, approved):
+def verify_files(manifest, d):
+    fails = []
+    for a in manifest.get("artifacts") or []:
+        f = os.path.join(d, a.get("file", ""))
+        if not a.get("file") or not os.path.isfile(f):
+            fails.append(f"artifact missing from {d}: {a.get('file')}")
+            continue
+        data = open(f, "rb").read()
+        if hashlib.sha256(data).hexdigest() != a.get("sha256"):
+            fails.append(f"{a['file']}: SHA-256 differs from the manifest")
+        if a.get("bytes") is not None and len(data) != a["bytes"]:
+            fails.append(f"{a['file']}: size {len(data)} != manifest {a['bytes']}")
+    sums = os.path.join(d, "checksums.sha256")
+    if not os.path.isfile(sums):
+        fails.append("checksums.sha256 missing")
+    else:
+        listed = {l.split("  ", 1)[1].strip(): l.split("  ", 1)[0] for l in open(sums).read().splitlines() if "  " in l}
+        for a in manifest.get("artifacts") or []:
+            if listed.get(a.get("file")) != a.get("sha256"):
+                fails.append(f"checksums.sha256 does not match the manifest for {a.get('file')}")
+    return fails
+
+
+def verify_manifest(path, approved, files_dir=None):
     fails = []
     if not approved or not FULL_SHA.match(approved):
         return ["--verify-manifest needs a full 40-hex --approved-sha"]
@@ -46,6 +71,8 @@ def verify_manifest(path, approved):
     arts = m.get("artifacts") or []
     if not arts or not all(a.get("sha256") and a.get("platform") for a in arts):
         fails.append("manifest lists no complete artifact entries")
+    elif files_dir:
+        fails += verify_files(m, files_dir)
     return fails
 
 
@@ -54,7 +81,7 @@ def main():
     approved = arg("--approved-sha", os.environ.get("APPROVED_SHA"))
 
     if "--verify-manifest" in sys.argv:
-        fails = verify_manifest(arg("--verify-manifest"), approved)
+        fails = verify_manifest(arg("--verify-manifest"), approved, arg("--files-dir"))
         label = "manifest matches approved source"
     else:
         repo = Repo(arg("--repo", ROOT))

@@ -132,6 +132,10 @@ describe('release immutability (build numbers are not reused)', () => {
   test('an unreleased build number passes', () => {
     expect(unused('42').status).toBe(0);
   });
+  test('the standard build-N tag is refused too', () => {
+    git('tag', 'build-50', tip);
+    expect(unused('50').status).toBe(1);
+  });
   test('a build number whose tag exists is refused', () => {
     git('tag', 'v41', tip);
     const r = unused('41');
@@ -142,11 +146,40 @@ describe('release immutability (build numbers are not reused)', () => {
   test('the APK build runs the check before any expensive step, and OTA publishing is gated to the line', () => {
     const apk = JSON.parse(JSON.stringify(wfSteps('android-build.yml', 'build')));
     const names = apk.map((s: any) => s.name);
-    expect(names.indexOf('Build number not already released')).toBeGreaterThan(-1);
-    expect(names.indexOf('Build number not already released')).toBeLessThan(names.indexOf('Install dependencies'));
+    expect(names.indexOf('Build number valid and unused')).toBeGreaterThan(-1);
+    expect(names.indexOf('Build number valid and unused')).toBeLessThan(names.indexOf('Install dependencies'));
     const eas = wfSteps('eas-update.yml', 'update').map((s: any) => s.name);
     expect(eas.indexOf('Verify approved source SHA')).toBeGreaterThan(-1);
     expect(eas.indexOf('Verify approved source SHA')).toBeLessThan(eas.indexOf('Publish update'));
+  });
+});
+
+describe('manifest verified against the packaged files', () => {
+  const sha = (b: string) => require('crypto').createHash('sha256').update(b).digest('hex');
+  const setup = (content = 'apk-bytes', fileOverride?: string) => {
+    const d = mkdtempSync(join(tmpdir(), 'rel-'));
+    writeFileSync(join(d, 'Game Build 1 APK.apk'), fileOverride ?? content);
+    const m = { sourceCommit: tip, approvedSha: tip, artifacts: [{ platform: 'android', file: 'Game Build 1 APK.apk', bytes: content.length, sha256: sha(content) }] };
+    writeFileSync(join(d, 'build-manifest.json'), JSON.stringify(m));
+    writeFileSync(join(d, 'checksums.sha256'), `${sha(content)}  Game Build 1 APK.apk\n`);
+    return d;
+  };
+  const run = (d: string) => guard(['--verify-manifest', join(d, 'build-manifest.json'), '--files-dir', d, '--approved-sha', tip]);
+  test('matching files, sizes and checksums pass', () => {
+    const d = setup();
+    try { expect(run(d).status).toBe(0); } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+  test('a file altered after the manifest was written is rejected', () => {
+    const d = setup('apk-bytes', 'apk-BYTES');
+    try { const r = run(d); expect(r.status).toBe(1); expect(r.stdout).toMatch(/SHA-256 differs/); } finally { rmSync(d, { recursive: true, force: true }); }
+  });
+  test('a missing artifact or checksums file is rejected', () => {
+    const d = setup();
+    rmSync(join(d, 'checksums.sha256'));
+    try { expect(run(d).stdout).toMatch(/checksums\.sha256 missing/); } finally { rmSync(d, { recursive: true, force: true }); }
+    const e = setup();
+    rmSync(join(e, 'Game Build 1 APK.apk'));
+    try { expect(run(e).stdout).toMatch(/artifact missing/); } finally { rmSync(e, { recursive: true, force: true }); }
   });
 });
 
