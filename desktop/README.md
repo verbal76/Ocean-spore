@@ -22,7 +22,7 @@ only the host (`main.js`, `preload.js`, `lib/`).
 * Content Security Policy on every response: `default-src 'none'`, scripts/styles/images/media/connect from the app origin only. **No remote content is ever loaded**: the game is offline.
 * All permission requests are denied; navigation away from `app://game/` and `window.open` are blocked.
 * IPC handlers re-check that the sender frame is `app://game/…`; save payloads are validated as JSON of bounded size.
-* Linux builds start through `ocean-spore.sh`, which passes `--no-sandbox`: Steam's container and many desktops cannot provide Chromium's setuid sandbox, and the renderer only ever runs this app's own bundled files.
+* Linux builds start through `ocean-spore.sh`, which keeps Chromium's sandbox ON. It falls back to `--no-sandbox` (with the reason on stderr) only when `OCEAN_SPORE_NO_SANDBOX=1`, when running as root (Chromium refuses its sandbox as root), or when there is no setuid `chrome-sandbox` and unprivileged user namespaces are unavailable. `OCEAN_SPORE_SANDBOX=required` makes it exit 78 instead of falling back; `OCEAN_SPORE_DRY_RUN=1` prints the decision. Verified: as a non-root user the packaged app runs with the renderer under seccomp (Seccomp: 2). Not verified: whether Steam's container permits user namespaces on a Deck. Alternative if it does not: ship `chrome-sandbox` setuid root (needs a root-owned install) or accept the documented fallback.
 
 ## Saves (documented locations and format)
 

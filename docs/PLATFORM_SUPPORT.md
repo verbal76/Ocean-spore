@@ -59,7 +59,7 @@ floor, **not** hardware performance. Nothing here was measured on a Steam Deck.
 | Input | Keyboard and a (fake) standard gamepad both verified through the real renderer; no physical pad |
 | Packaging complexity | Low: `@electron/packager` + tar/zip; no installer, no Wine; 121 MB (Linux) / 154 MB (Windows) archives |
 | Steam Deck suitability | Plausible (Chromium/ANGLE runs on Vulkan on SteamOS; ~0.5 GB RAM; 2D-ish low-poly scene) but **unproven**: needs real hardware for frame pacing, thermals, battery and suspend/resume |
-| Material architectural problem? | None found. Costs: ~120-150 MB per package, Chromium memory, and the `--no-sandbox` launcher on Linux |
+| Material architectural problem? | None found. Costs: ~120-150 MB per package, Chromium memory, and the Linux launcher's conditional sandbox fallback (sandbox is ON for a normal user; see desktop/README.md) |
 
 **Recommendation:** continue with Electron. Revisit only if real-hardware tests show
 unacceptable frame pacing or memory (alternatives would be a Godot/Unity port, which is an

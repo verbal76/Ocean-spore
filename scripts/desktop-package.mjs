@@ -5,7 +5,7 @@
 // Usage: node scripts/desktop-package.mjs --platform linux|windows|all --out <dir> [--skip-export]
 // Nothing is published; output stays in <dir>. Run `npm ci` in desktop/ first.
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, chmodSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 
@@ -49,14 +49,13 @@ for (const t of targets) {
   const [dir] = await packager({
     dir: desk, out: pkgOut, name: 'Ocean Spore', executableName: 'OceanSpore',
     platform: electronPlatform, arch: 'x64', electronVersion, overwrite: true, prune: true,
-    ignore: [/^\/node_modules($|\/)/, /^\/package-lock\.json$/, /^\/\.gitignore$/],
+    ignore: [/^\/node_modules($|\/)/, /^\/launcher($|\/)/, /^\/package-lock\.json$/, /^\/\.gitignore$/],
     asar: false,                                    // plain files: easy to inspect/diff, no unpack steps
     quiet: true,
   });
   if (t === 'linux') {
-    // Steam's container and many desktops lack a setuid chrome-sandbox: launch via a wrapper.
-    writeFileSync(join(dir, 'ocean-spore.sh'),
-      '#!/bin/sh\n# Launches Ocean Spore. --no-sandbox: the app only ever loads its own bundled files\n# (no remote content), and Steam / Flatpak-style containers cannot provide the setuid sandbox.\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/OceanSpore" --no-sandbox "$@"\n');
+    // The sandbox-aware launcher (desktop/launcher/ocean-spore.sh): sandbox ON where the system allows it.
+    cpSync(join(desk, 'launcher', 'ocean-spore.sh'), join(dir, 'ocean-spore.sh'));
     chmodSync(join(dir, 'ocean-spore.sh'), 0o755);
     chmodSync(join(dir, 'OceanSpore'), 0o755);
   }

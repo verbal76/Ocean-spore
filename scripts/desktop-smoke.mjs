@@ -23,7 +23,11 @@ writeFileSync(join(userData, 'saves', 'ocean-spore-save.json'), JSON.stringify({
   captainName: 'Smoke Tester', soundEnabled: true, schemaVersion: 2,
 }));
 
-const flags = ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+// Chromium refuses to run its sandbox as root, so the harness bypasses it ONLY then (this
+// is a property of the root test environment, not of the product launcher).
+const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+if (asRoot) console.log('[smoke] running as root: Chromium sandbox bypassed for this test run only');
+const flags = [...(asRoot ? ['--no-sandbox'] : []), '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
   `--user-data-dir=${userData}`, `--smoke=${out}`];
 const bin = packaged ? join(resolve(packaged), 'OceanSpore') : resolve('desktop/node_modules/.bin/electron');
 const args = packaged ? flags : [resolve('desktop'), ...flags];

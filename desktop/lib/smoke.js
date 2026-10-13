@@ -48,6 +48,17 @@ async function run(win, outDir, { store, app }) {
     step('bridge present', await js("typeof window.hotAttic === 'object' && window.hotAttic.isDesktop === true"));
     step('renderer has no Node (sandbox + context isolation)', await js("typeof (window.process && window.process.versions && window.process.versions.node) === 'undefined' && typeof window.Buffer === 'undefined'"), { isolated });
     report.info = await js('window.hotAttic.info()');
+    // Chromium sandbox: on Linux a sandboxed renderer runs under a seccomp filter (Seccomp: 2).
+    // The bypass flag is only ever passed by the harness when it runs as root (no sandbox possible).
+    const bypassed = process.argv.includes('--no-sandbox');
+    if (process.platform === 'linux') {
+      const seccomp = app.getAppMetrics().filter((m) => m.type === 'Tab').map((m) => {
+        try { return Number((fs.readFileSync(`/proc/${m.pid}/status`, 'utf8').match(/Seccomp:\s+(\d)/) || [])[1]); } catch { return NaN; }
+      });
+      report.sandbox = { bypassed, rendererSeccomp: seccomp };
+      step(bypassed ? 'sandbox bypassed (test harness running as root)' : 'Chromium sandbox active in the renderer (seccomp filter)',
+        bypassed || (seccomp.length > 0 && seccomp.every((v) => v === 2)), { bypassed, rendererSeccomp: seccomp });
+    }
     await waitFor("!!document.querySelector('#root') && document.querySelector('#root').children.length > 0", 20000, 'game UI mounted');
     step('game UI mounted', true);
     await waitFor('!!window.__oceanSporeStatus', 20000, 'status hook present');
