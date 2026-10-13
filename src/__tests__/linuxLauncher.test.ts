@@ -23,7 +23,7 @@ function run(opts: { uid: string; unshareWorks: boolean; setuidHelper?: boolean;
   if (opts.setuidHelper) { writeFileSync(join(app, 'chrome-sandbox'), ''); chmodSync(join(app, 'chrome-sandbox'), 0o4755); }
   const r = spawnSync('/bin/sh', [join(app, 'ocean-spore.sh'), '--fullscreen'], {
     encoding: 'utf8',
-    env: { PATH: `${bin}:/usr/bin:/bin`, OCEAN_SPORE_DRY_RUN: '1', ...(opts.env ?? {}) },
+    env: { PATH: `${bin}:/usr/bin:/bin`, OCEAN_SPORE_DRY_RUN: '1', ...(opts.env ?? {}) } as unknown as NodeJS.ProcessEnv,
   });
   rmSync(dir, { recursive: true, force: true });
   return r;
