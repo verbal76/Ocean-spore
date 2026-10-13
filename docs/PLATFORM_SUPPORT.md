@@ -83,3 +83,20 @@ grow to fill the display); a larger window/fullscreen layout was last viewed in 
 round and has NOT been re-verified for Build 42. Gamepad disconnect is covered by unit tests
 only. Windows: package structure and PE type verified in CI; **never launched**.
 Nothing was tested on physical hardware, and no Steam Deck claim is made.
+
+## CI sandbox finding (Build 42 run 38349680601)
+
+The first Build 42 attempt failed at the Linux smoke step (exit 133, no output). With the
+sandbox kept ON and diagnostics added, the runner reported `kernel.apparmor_restrict_unprivileged_userns=1`
+(Ubuntu 24.04-class kernel 6.17 azure, user `runner`). The CI step lifts that sysctl on the throwaway
+runner only; the packaged smoke then passed with `Chromium sandbox active in the renderer
+(seccomp filter) {"bypassed":false,"rendererSeccomp":[2]}`. No setuid helper was added and no bypass was used.
+
+**Open product finding:** on that same runner `unshare -U true` succeeded *before* the sysctl was
+lifted, so the launcher's namespace probe (`unshare -U true`) can report "sandbox possible" on
+Ubuntu 24.04+ hosts where AppArmor then blocks the sandbox, and Chromium aborts instead of the
+launcher falling back. Not fixed in Build 42 (the SHA was frozen); a stronger probe such as
+`unshare -Um true` is the proposed follow-up. Affected: desktop Ubuntu 24.04+ with the default
+AppArmor restriction. Workarounds for testers: `OCEAN_SPORE_NO_SANDBOX=1 ./ocean-spore.sh`, or
+`sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0`. Steam Deck (SteamOS) is not affected
+by this particular restriction, but it has not been tested.
