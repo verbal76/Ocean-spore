@@ -144,7 +144,7 @@ describe('release immutability (build numbers are not reused)', () => {
     expect(unused('42').status).toBe(0);
   });
   test('the APK build runs the check before any expensive step, and OTA publishing is gated to the line', () => {
-    const apk = JSON.parse(JSON.stringify(wfSteps('native-build.yml', 'build-android')));
+    const apk = JSON.parse(JSON.stringify(wfSteps('android-build.yml', 'build-android')));
     const names = apk.map((s: any) => s.name);
     expect(names.indexOf('Build number valid and unused')).toBeGreaterThan(-1);
     expect(names.indexOf('Build number valid and unused')).toBeLessThan(names.indexOf('Install dependencies'));

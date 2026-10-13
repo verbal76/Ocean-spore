@@ -67,7 +67,7 @@ describe('no accidental OTA publication', () => {
 });
 
 describe('native release publishing is deliberate', () => {
-  const nb = wf('native-build.yml');
+  const nb = wf('android-build.yml');
   const jobSteps = (j: string) => nb.jobs[j].steps as any[];
   test('only a manual dispatch plans a build; dispatch defaults to local_only (a label is not authorization)', () => {
     expect(nb.jobs.plan.if).toBe("github.event_name == 'workflow_dispatch'");
@@ -155,7 +155,7 @@ describe('no ordinary repository event can build or publish', () => {
     expect(read('CLAUDE.md')).not.toMatch(/label.*(is|as) the working trigger/i);
   });
   test('publishing credentials are scoped to the publishing job/step only', () => {
-    const apkW = wf('native-build.yml');
+    const apkW = wf('android-build.yml');
     expect(apkW.permissions).toEqual({ contents: 'read' });
     expect(Object.keys(apkW.jobs).filter((j) => apkW.jobs[j].permissions)).toEqual(['release']);
     const eas = JSON.stringify(wf('eas-update.yml'));
@@ -192,7 +192,7 @@ describe('single source of truth (docs/source-line.json)', () => {
     expect(ci.jobs.verify.steps.some((s: any) => /check-source-line/.test(s.run ?? ''))).toBe(true);
     const audit = ci.jobs.verify.steps.find((s: any) => /audit-branches/.test(s.run ?? ''));
     expect(audit.run).not.toMatch(/--strict/);                             // reporting only
-    const nb = wf('native-build.yml');
+    const nb = wf('android-build.yml');
     for (const j of ['build-android', 'build-desktop']) {
       const steps = nb.jobs[j].steps as any[];
       const bco = steps.find((s) => s.uses?.startsWith('actions/checkout'));

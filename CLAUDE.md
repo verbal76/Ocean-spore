@@ -34,7 +34,7 @@ or can I prove it locally?*
 - Validate locally first: `npm run verify`, plus `node scripts/desktop-package.mjs` / `desktop-smoke.mjs` for desktop (brand, audio drift, typecheck, asset
   integrity, lint, tests, version). Also `npx expo export --platform android`
   when bundling is in doubt. Debug locally, never by re-running CI.
-- Nothing runs automatically on push or PR update. `native-build.yml` starts only
+- Nothing runs automatically on push or PR update. `android-build.yml` starts only
   on `workflow_dispatch` (inputs: platform, source_sha, build_number, destination) only;
   labels, pushes, merges and tags can never build or publish. `ci.yml` is called by the
   build and OTA workflows (and manual dispatch); `prune-artifacts.yml` is manual.

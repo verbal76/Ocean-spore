@@ -9,7 +9,7 @@ Three targets from one source line (`src/` is shared; nothing is forked):
 | Linux x86-64 | `Ocean Spore Build N Linux.tar.gz` | yes (same shell) | yes: ELF x86-64, 121 MB tar.gz | **yes**, packaged build, Xvfb + software GL | **no** (no Steam Deck / physical PC) |
 
 `build --platform android|windows|linux|all` is the manual **Native Build** workflow
-(`.github/workflows/native-build.yml`, inputs `platform`, `source_sha`, `build_number`,
+(`.github/workflows/android-build.yml`, inputs `platform`, `source_sha`, `build_number`,
 `destination`). It has never been run on GitHub; each part was validated locally (below).
 
 ## How the targets share code

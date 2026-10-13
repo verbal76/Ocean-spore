@@ -92,3 +92,10 @@ typecheck, lint (0 warnings), unit + simulation tests, bundled-asset integrity
 bundle export, then on the APK: package/version/target SDK/permission allowlist/
 no foreground or microphone service/portrait/not debuggable/signing certificate
 (`check-manifest.py`) and 16 KB page-size (`check-16kb.py`).
+
+## Why the unified workflow file is named `android-build.yml`
+
+GitHub only accepts `workflow_dispatch` for a workflow file that exists on the default
+branch. `main` registers `android-build.yml`, and `main` is not modified by this line, so
+the unified Android/Windows/Linux workflow lives at that registered path. It builds all
+selected platforms (the filename is historical); the dispatch ref is the authorized branch.
