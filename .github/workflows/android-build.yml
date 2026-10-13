@@ -306,6 +306,18 @@ jobs:
         if: needs.plan.outputs.desktop_platform != 'windows'
         run: |
           sudo apt-get install -y --no-install-recommends xvfb > /dev/null
+          # Ubuntu 24.04 runners may block unprivileged user namespaces via AppArmor, which
+          # stops Chromium's (production, user-namespace) sandbox from starting. Record the
+          # evidence, and lift that restriction on this throwaway runner ONLY if it is set.
+          # The packaged app is unchanged and the smoke still asserts the renderer is sandboxed.
+          echo "kernel: $(uname -r)  user: $(id -un)"
+          RESTRICT=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)
+          echo "kernel.apparmor_restrict_unprivileged_userns=$RESTRICT"
+          echo "unshare -U before: $(unshare -U true >/dev/null 2>&1 && echo ok || echo FAILED)"
+          if [ "$RESTRICT" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            echo "unshare -U after: $(unshare -U true >/dev/null 2>&1 && echo ok || echo FAILED)"
+          fi
           node scripts/desktop-smoke.mjs --packaged "dist-desktop/packages/Ocean Spore-linux-x64" --out dist-desktop/smoke
 
       - name: Manifest parts and checksums

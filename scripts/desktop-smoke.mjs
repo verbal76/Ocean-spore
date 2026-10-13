@@ -41,10 +41,16 @@ let log = '';
 child.stdout.on('data', (d) => { log += d; });
 child.stderr.on('data', (d) => { log += d; });
 const timer = setTimeout(() => { console.error('smoke timed out'); child.kill('SIGKILL'); }, limit * 1000);
-child.on('exit', (code) => {
+child.on('exit', (code, signal) => {
   clearTimeout(timer);
   writeFileSync(join(out, 'smoke.log'), log);
   for (const l of log.split('\n')) if (l.includes('[smoke]')) console.log(l.slice(0, 300));
+  const rep0 = join(out, 'smoke-report.json');
+  if (!existsSync(rep0)) {
+    // No report means the app died before the smoke ran: show why (CI only prints this script's stdout).
+    console.log(`[smoke] no report written (exit=${code}, signal=${signal}); last application output:`);
+    console.log(log.split('\n').slice(-60).join('\n'));
+  }
   const rep = join(out, 'smoke-report.json');
   const ok = existsSync(rep) && JSON.parse(readFileSync(rep, 'utf8')).ok === true;
   const saved = existsSync(join(userData, 'saves', 'ocean-spore-save.json'));
