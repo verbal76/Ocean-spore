@@ -73,3 +73,13 @@ engine migration and needs your approval).
 * Landscape art direction beyond the centered portrait menu column is an owner aesthetic call.
 
 See `docs/STEAM_HARDWARE_CHECKLIST.md`, `docs/UPDATES.md` and `desktop/README.md`.
+
+## Layout checks (Build 42, Linux packaged app under Xvfb, software rendering)
+
+Run as a non-root user with the Chromium sandbox active (renderer Seccomp: 2).
+Window 1280x800 (default) and a 1280x720 display: pause menu and HUD fit with margin, no
+clipping. A 1920x1080 display only exercised the default 1280x800 window (the window does not
+grow to fill the display); a larger window/fullscreen layout was last viewed in the earlier
+round and has NOT been re-verified for Build 42. Gamepad disconnect is covered by unit tests
+only. Windows: package structure and PE type verified in CI; **never launched**.
+Nothing was tested on physical hardware, and no Steam Deck claim is made.
