@@ -1,0 +1,12 @@
+{
+  "name": "ocean-spore-desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Electron shell for Ocean Spore (Windows / Linux). Loads the existing Expo web export; no game code lives here.",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@electron/packager": "^19.0.0",
+    "electron": "44.7.0"
+  }
+}

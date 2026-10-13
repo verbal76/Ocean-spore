@@ -1,0 +1,47 @@
+{
+  "_comment": "Machine-readable source-of-truth record. Release authorization (scripts/check-source-line.py) reads authoritativeLine + forbiddenBuildRefs only. historicalBaselines and ledger are permanent AUDIT EVIDENCE read by scripts/audit-branches.py; they never gate a release. See docs/ARCHITECTURE.md.",
+  "project": "ocean-spore",
+  "platforms": [
+    "android",
+    "windows",
+    "linux"
+  ],
+  "authoritativeLine": {
+    "branches": [
+      "ccr-47defc1a-89uvnr"
+    ],
+    "note": "Add 'main' here (deliberately, in a reviewed commit) when PR #1 is merged. A release source must be the tip of, or an ancestor of, one of these origin branches, and must be named by its full SHA."
+  },
+  "forbiddenBuildRefs": [
+    {
+      "ref": "working-branch-ocean-spore",
+      "why": "legacy branch that auto-publishes OTAs; never a build or release source"
+    }
+  ],
+  "historicalBaselines": [
+    {
+      "name": "build-39 source (last device build of the original app)",
+      "sha": "a3f17b61d38409dd2711f307a5a95e820fe6b986"
+    },
+    {
+      "name": "working-branch-ocean-spore tip (original dev line)",
+      "sha": "cd44482a1d4d17c8d950fbf0eff29199920d3d23"
+    },
+    {
+      "name": "main before resurrection",
+      "sha": "4e1c3774237c65e99dba99d16284c411f29fd6b8"
+    },
+    {
+      "name": "v40 rollback / qualified checkpoint",
+      "sha": "e2712522338cc1600d52be9bc78d5e9a293eeae3"
+    }
+  ],
+  "ledger": [
+    {
+      "ref": "origin/claude/fix-ui-add-menus-3q8N7",
+      "tip": "44202cdb838c4d30d5b20e8efb3f2c358046fc08",
+      "classification": "integrated-equivalent",
+      "disposition": "keep ref; do not merge. Its 3 unique commits were redone on the working branch (266c085 and later) and then rewritten in this line. See docs/BRANCH-LEDGER.md."
+    }
+  ]
+}

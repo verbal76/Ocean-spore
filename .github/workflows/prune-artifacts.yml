@@ -1,27 +1,12 @@
 name: Prune Artifacts
 
-# Keep only the 3 most recent artifacts repo-wide so we stay under the
-# GitHub Actions storage quota. Runs daily, manually, and after every
-# APK build completes.
-#
-# This file lives on the default branch (main) on purpose: GitHub only
-# reads `schedule` and `workflow_run` triggers from the default branch.
-# A copy on the de-facto-main branch would never fire on cron / chain.
-#
-# Note: android-build.yml on working-branch-ocean-spore currently does
-# NOT upload new artifacts (the actions/upload-artifact step was
-# removed after the quota was hit - Releases use repo storage, a
-# separate, much larger quota). This workflow is still useful to clean
-# up the backlog of artifacts from earlier builds, and acts as a
-# safety net if upload-artifact is ever re-added.
+# Keep only the 3 most recent artifacts repo-wide (storage quota). MANUAL ONLY:
+# the APK build now keeps its artifact for 1 day and runs only on deliberate
+# triggers, so a daily cron / per-build run would just burn runner minutes
+# (Actions budget policy, see CLAUDE.md).
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 6 * * *'
-  workflow_run:
-    workflows: ['APK Build (GitHub-hosted)']
-    types: [completed]
 
 permissions:
   actions: write
